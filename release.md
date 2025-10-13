@@ -1,1 +1,1 @@
-Initialized the library with basic functionality
+Updated toml to comply with crates.io restriction
