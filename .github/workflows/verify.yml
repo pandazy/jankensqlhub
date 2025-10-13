@@ -1,0 +1,31 @@
+name: Test with coverage
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:develop-nightly
+      options: --security-opt seccomp=unconfined
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+    - name: Generate code coverage
+      run: |
+          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
+    - name: Upload to codecov.io
+      uses: codecov/codecov-action@v4
+      with:
+          token: ${{secrets.CODECOV_TOKEN}}
+          fail_ci_if_error: true
+          verbose: true

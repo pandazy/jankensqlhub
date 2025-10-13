@@ -1,0 +1,7 @@
+{
+	"query": "my_list",
+	"data": {
+		"id": 1,
+		"name": "John"
+	}
+}

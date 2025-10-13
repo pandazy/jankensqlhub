@@ -1,0 +1,21 @@
+[package]
+name = "jankensqlhub"
+version = "0.1.0"
+edition = "2024"
+authors = ["Martin Zheng <jszhengyq@gmail.com>"]
+description = "A high-performance, modular Rust library for parameterizable SQL query management with support for SQLite"
+readme = "README.md"
+documentation = "https://docs.rs/jankensqlhub"
+repository = "https://github.com/pandazy/jankensqlhub"
+homepage = "https://github.com/pandazy/jankensqlhub"
+license = "MIT"
+keywords = ["rust", "sqlite", "sql", "prepared-statements", "type-safe", "query-builder", "sql-injection-protection"]
+categories = ["database", "database-implementations"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = "0.37"
+thiserror = "2.0"
+regex = "1.12"
+once_cell = "1.19"

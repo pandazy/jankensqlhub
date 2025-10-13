@@ -1,0 +1,74 @@
+{
+	"my_list": {
+		"query": "select * from source where id=@id and name=@name",
+		"args": {
+			"id": { "type": "integer" },
+			"name": { "type": "string" }
+		}
+	},
+	"my_action": {
+		"query": "update source set id=@new_id, name=@new_name where id=@old_id",
+		"args": {
+			"new_id": { "type": "integer" },
+			"new_name": { "type": "string" },
+			"old_id": { "type": "integer" }
+		}
+	},
+	"insert_single": {
+		"query": "insert into source (name) values (@name)",
+		"args": {
+			"name": { "type": "string" }
+		}
+	},
+	"delete_item": {
+		"query": "delete from source where id=@id",
+		"args": {
+			"id": { "type": "integer" }
+		}
+	},
+	"select_all": {
+		"query": "select * from source"
+	},
+	"select_specific": {
+		"query": "select id, name from source where id=@id and name=@name",
+		"args": {
+			"id": { "type": "integer" },
+			"name": { "type": "string" }
+		}
+	},
+	"insert_with_float": {
+		"query": "insert into source (id, name, score) values (@id, @name, @score)",
+		"args": {
+			"id": { "type": "integer" },
+			"name": { "type": "string" },
+			"score": { "type": "float" }
+		}
+	},
+	"select_with_float": {
+		"query": "select * from source where score > @min_score",
+		"args": {
+			"min_score": { "type": "float", "range": [0, 100] }
+		}
+	},
+	"multi_statement_transfer": {
+		"query": "insert into accounts (name, balance) values ('Alice', 1000); insert into accounts (name, balance) values ('Bob', 1000); update accounts set balance = balance - 100 where name = 'Alice'; update accounts set balance = balance + 100 where name = 'Bob';"
+	},
+	"multi_statement_transfer_with_params": {
+		"query": "INSERT INTO accounts (name, balance) VALUES (@from_name, @initial_balance); INSERT INTO accounts (name, balance) VALUES (@to_name, @initial_balance); UPDATE accounts SET balance = balance - @amount WHERE name = @from_name; UPDATE accounts SET balance = balance + @amount WHERE name = @to_name;",
+		"args": {
+			"from_name": { "type": "string" },
+			"initial_balance": { "type": "integer" },
+			"to_name": { "type": "string" },
+			"amount": { "type": "integer", "range": [0, 1000000] }
+		}
+	},
+	"multi_statement_failure_transfer": {
+		"query": "INSERT INTO accounts (name, balance) VALUES ('Alice', 1000); INSERT INTO accounts (name, balance) VALUES ('Bob', 1000); UPDATE accounts SET balance = balance - 100 WHERE name = 'Alice'; INVALID STATEMENT; UPDATE accounts SET balance = balance + 100 WHERE name = 'Bob';"
+	},
+	"select_accounts": {
+		"query": "select id, name, balance from accounts order by id"
+	},
+	"cleanup_accounts": {
+		"query": "delete from accounts"
+	}
+}
