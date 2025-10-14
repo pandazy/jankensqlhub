@@ -25,7 +25,7 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 ├── query.rs           # Query definition creation and collection management
 ├── result.rs          # Error types and result aliases
 ├── runner.rs          # Query execution logic and transaction management
-└── sql_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
+└── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
 ```
 
 ### Module Responsibilities
@@ -36,7 +36,7 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 | **`parameters.rs`** | SQL parameter handling | `parse_parameters_with_quotes()`, `create_prepared_statement()` |
 | **`query.rs`** | Query definition management | `QueryDef::from_sql()`, `QueryDefinitions::from_file()` |
 | **`runner.rs`** | Execution mechanics | `query_run_sqlite()`, transaction handling |
-| **`sql_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
+| **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
 | **`result.rs`** | Error handling | `JankenError` enum |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
@@ -169,7 +169,7 @@ let result = conn.query_run(&queries, "search_users", &params)?;
 
 ## 🧪 Quality Assurance
 
-- **Test Coverage**: 23 comprehensive integration tests
+- **Test Coverage**: 100% coverage
 - **Zero Warnings**: `cargo clippy -- -D warnings` clean
 - **Memory Safety**: Rust ownership system guarantees
 - **Type Safety**: Compile-time parameter validation
