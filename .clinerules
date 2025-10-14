@@ -9,27 +9,26 @@ After running `cargo test` to verify functionality, always execute:
 - `cargo fmt` to ensure code formatting consistency
 
 # Testing Principles
-- Ensure tests are simple and straightforward to read.
-- Aim for broader coverage with fewer, well-designed tests.
-- Prioritize testing for security issues, particularly SQL injection vulnerabilities.
+- You shall not use conditional assertions, if they are wrapped in a callback function, make sure the wrapper happens 100%, avoid any assertions that will not actually be run
+- Ensure tests are simple and straightforward to read
+- Aim for broader coverage with fewer, well-designed tests
+- Prioritize testing for security issues, particularly SQL injection vulnerabilities
 
-# Process Management
+# Task Management
 - Current task name: 'coverage_improvement'
 - Progress file name: `_progress_<task_name>.md`
 
 When a new task begins:
-1. Read the progress file to review completed work; if it does not exist, create one.
-2. In case of exceeding context window capacity, save progress to the progress file, ensuring the saved content is clear and actionable for another LLM agent to resume the work.
+1. Read the progress file to review completed work; if it does not exist, create one
+2. In case of exceeding context window capacity, save progress to the progress file, ensuring the saved content is clear and actionable for another LLM agent to resume the work
 
-# TODO LIST RECOMMENDED
-When starting a new task, it is recommended to create a todo list.
-
+# TODO LIST USAGE
+When starting a new task, it is recommended to create a todo list:
 1. Include the task_progress parameter in your next tool call
 2. Create a comprehensive checklist of all steps needed
-3. Use markdown format: - [ ] for incomplete, - [x] for complete
+3. Use markdown format: `- [ ]` for incomplete, `- [x]` for complete
 
-**Benefits of creating a todo list now:**
-
+**Benefits:**
 - Clear roadmap for implementation
 - Progress tracking throughout the task
 - Nothing gets forgotten or missed

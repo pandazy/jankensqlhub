@@ -1,1 +1,1 @@
-Trying to fix codecov error 1
+- fix: updated parameter checks and added missing test cases

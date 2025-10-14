@@ -10,7 +10,7 @@ pub use connection::DatabaseConnection;
 pub use parameters::{Parameter, ParameterType};
 pub use query::{QueryDef, QueryDefinitions};
 pub use result::{JankenError, Result};
-pub use runner::QueryRunner;
+pub use runner::{QueryRunner, query_run_sqlite};
 
 // Re-export third-party types used in the public API to provide fallback for dependency conflicts
 pub use serde_json::Value as JsonValue;

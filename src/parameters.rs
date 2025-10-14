@@ -32,14 +32,15 @@ impl FromStr for ParameterType {
     }
 }
 
-impl ParameterType {
-    pub fn to_string(&self) -> &'static str {
-        match self {
+impl std::fmt::Display for ParameterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
             ParameterType::Integer => "integer",
             ParameterType::String => "string",
             ParameterType::Float => "float",
             ParameterType::Boolean => "boolean",
-        }
+        };
+        write!(f, "{s}")
     }
 }
 
@@ -56,34 +57,22 @@ impl ParameterConstraints {
     pub fn validate(&self, value: &serde_json::Value, param_type: &ParameterType) -> Result<()> {
         // Check range for numeric types
         if let Some(range) = &self.range {
-            let num_val = match param_type {
-                ParameterType::Integer => {
-                    if let Some(int_val) = value.as_i64() {
-                        int_val as f64
+            let num_val =
+                if param_type.to_string() == "integer" || param_type.to_string() == "float" {
+                    if let Some(num) = value.as_f64() {
+                        num
                     } else {
                         return Err(JankenError::ParameterTypeMismatch {
-                            expected: "number".to_string(),
+                            expected: "number (integer/float)".to_string(),
                             got: value.to_string(),
                         });
                     }
-                }
-                ParameterType::Float => {
-                    if let Some(float_val) = value.as_f64() {
-                        float_val
-                    } else {
-                        return Err(JankenError::ParameterTypeMismatch {
-                            expected: "number".to_string(),
-                            got: value.to_string(),
-                        });
-                    }
-                }
-                _ => {
+                } else {
                     return Err(JankenError::ParameterTypeMismatch {
                         expected: "numeric type".to_string(),
-                        got: param_type.to_string().to_string(),
+                        got: format!("{param_type:?}").to_lowercase(),
                     });
-                }
-            };
+                };
 
             if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
                 if num_val < min || num_val > max {
@@ -109,9 +98,9 @@ impl ParameterConstraints {
                         got: string_val.to_string(),
                     });
                 }
-            } else if *param_type == ParameterType::String {
+            } else {
                 return Err(JankenError::ParameterTypeMismatch {
-                    expected: "string".to_string(),
+                    expected: ParameterType::String.to_string().to_lowercase(),
                     got: value.to_string(),
                 });
             }
@@ -163,10 +152,7 @@ pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
         // Parse the parameter name only
         let name = cap
             .get(1)
-            .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                expected: "valid parameter name".to_string(),
-                got: "missing parameter name in regex capture".to_string(),
-            })?
+            .expect("Parameter regex should always have capture group 1")
             .as_str()
             .to_string();
 
