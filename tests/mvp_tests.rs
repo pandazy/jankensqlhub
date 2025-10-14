@@ -68,10 +68,13 @@ fn test_sqlite_update_with_params() {
     let params = serde_json::json!({"new_id": 10, "new_name": "NewJohn", "old_id": 1});
     db_conn.query_run(&queries, "my_action", &params).unwrap();
 
-    // Verify by select specific with new id
+    // Verify by select specific with new id - returns structured data now
     let params = serde_json::json!({"id": 10, "name": "NewJohn"});
     let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
-    assert_eq!(result, vec![serde_json::json!("10")]);
+    assert_eq!(
+        result,
+        vec![serde_json::json!({"id": 10, "name": "NewJohn"})]
+    );
 }
 
 #[test]
@@ -202,9 +205,9 @@ fn test_sqlite_float_params() {
         .query_run(&queries, "select_with_float", &params)
         .unwrap();
 
-    // Should return both Bob (id=3) and Jane (id=2)
+    // Should return both Bob (id=3) and Jane (id=2) as structured objects
     assert_eq!(result.len(), 2);
-    // Check that we got the expected IDs (Bob and Jane)
-    assert!(result.contains(&serde_json::json!("2"))); // Jane with score 8.2
-    assert!(result.contains(&serde_json::json!("3"))); // Bob with score 7.0
+    // Check that we got the expected structured data for Bob and Jane
+    assert!(result.contains(&serde_json::json!({"id": 2, "name": "Jane"}))); // Jane with score 8.2
+    assert!(result.contains(&serde_json::json!({"id": 3, "name": "Bob"}))); // Bob with score 7.0
 }

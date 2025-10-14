@@ -7,13 +7,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::str::FromStr;
 
-/// Represents a parsed SQL query with parameters and prepared versions
+/// Represents a parsed SQL query with parameters
 #[derive(Debug)]
 pub struct QueryDef {
     pub sql: String,
     pub parameters: Vec<Parameter>,
-    pub sqlite_prepared: String,
-    pub postgres_prepared: String,
+    pub returns: Vec<String>,
 }
 
 impl QueryDef {
@@ -91,21 +90,10 @@ impl QueryDef {
             }
         }
 
-        // Create prepared versions by replacing parameters outside quotes
-        let sqlite_prepared =
-            crate::parameters::create_prepared_statement(sql, &parameters, |idx| {
-                format!("?{idx}")
-            })?;
-        let postgres_prepared =
-            crate::parameters::create_prepared_statement(sql, &parameters, |idx| {
-                format!("${idx}")
-            })?;
-
         Ok(QueryDef {
             sql: sql.to_string(),
             parameters,
-            sqlite_prepared,
-            postgres_prepared,
+            returns: Vec::new(),
         })
     }
 }
@@ -143,7 +131,34 @@ impl QueryDefinitions {
             };
             if let Some(serde_json::Value::String(sql)) = map.get("query") {
                 let args = map.get("args").and_then(|a| a.as_object());
-                let query_def = QueryDef::from_sql(sql, args)?;
+                let mut query_def = QueryDef::from_sql(sql, args)?;
+
+                // Parse returns field
+                if let Some(returns_val) = map.get("returns") {
+                    if let Some(returns_array) = returns_val.as_array() {
+                        let returns: Vec<String> = returns_array
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .collect();
+                        // Deduplicate using a set but maintain order
+                        let mut seen = std::collections::HashSet::new();
+                        let unique_returns: Vec<String> = returns
+                            .into_iter()
+                            .filter(|item| seen.insert(item.clone()))
+                            .collect();
+                        query_def.returns = unique_returns;
+                    } else {
+                        return Err(JankenError::ParameterTypeMismatch {
+                            expected: "array of strings".to_string(),
+                            got: returns_val.to_string(),
+                        });
+                    }
+                } else {
+                    // No returns specified - empty array
+                    query_def.returns = Vec::new();
+                }
+
                 definitions.insert(name.clone(), query_def);
             }
         }

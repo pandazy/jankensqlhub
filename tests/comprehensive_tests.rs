@@ -12,78 +12,123 @@ fn setup_db() -> Connection {
 }
 
 #[test]
-fn test_multi_statement_transaction_acid_properties() {
-    // Test multi-statement transaction ACID properties with different scenarios
+fn test_multi_statement_transaction_acid_properties_fixed() {
+    // Test multi-statement transaction ACID properties for fixed value transfer
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = setup_db();
-
-    // Create accounts table
+    let conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, balance INTEGER)",
         [],
     )
     .unwrap();
+    let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test scenarios: (query_name, params, should_succeed)
-    let empty_json = serde_json::json!({});
-    let params_json = serde_json::json!({
+    // Execute fixed value transfer
+    let params = serde_json::json!({});
+    let result = db_conn.query_run(&queries, "multi_statement_transfer", &params);
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
+
+    // Verify ACID properties: all operations completed atomically
+    let accounts = db_conn
+        .query_run(&queries, "select_accounts", &serde_json::json!({}))
+        .unwrap();
+    assert_eq!(accounts.len(), 2);
+
+    // Check that Alice has balance 900 (1000 - 100)
+    let alice_account = accounts
+        .iter()
+        .find(|account| account.get("name").and_then(|n| n.as_str()) == Some("Alice"));
+    assert!(alice_account.is_some());
+    let alice_balance = alice_account
+        .unwrap()
+        .get("balance")
+        .and_then(|b| b.as_i64());
+    assert_eq!(alice_balance, Some(900));
+
+    // Check that Bob has balance 1100 (1000 + 100)
+    let bob_account = accounts
+        .iter()
+        .find(|account| account.get("name").and_then(|n| n.as_str()) == Some("Bob"));
+    assert!(bob_account.is_some());
+    let bob_balance = bob_account.unwrap().get("balance").and_then(|b| b.as_i64());
+    assert_eq!(bob_balance, Some(1100));
+}
+
+#[test]
+fn test_multi_statement_transaction_acid_properties_with_params() {
+    // Test multi-statement transaction ACID properties for parameterized transfer
+    let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE accounts2 (id INTEGER PRIMARY KEY, name TEXT, balance INTEGER)",
+        [],
+    )
+    .unwrap();
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Execute parameterized transfer
+    let params = serde_json::json!({
         "from_name": "Alice",
         "to_name": "Bob",
         "initial_balance": 2000,
         "amount": 300
     });
-    let test_cases = vec![
-        ("multi_statement_transfer", &empty_json, true), // Fixed values, success
-        ("multi_statement_transfer_with_params", &params_json, true), // With parameters, success
-        ("multi_statement_failure_transfer", &empty_json, false), // Failure case
-    ];
+    let result = db_conn.query_run(&queries, "multi_statement_transfer_with_params", &params);
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
 
-    for (query_name, params, should_succeed) in test_cases {
-        let conn = setup_db();
-        conn.execute(
-            "CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, balance INTEGER)",
-            [],
-        )
+    // Verify ACID properties: all operations completed atomically
+    let accounts = db_conn
+        .query_run(&queries, "select_accounts2", &serde_json::json!({}))
         .unwrap();
-        let mut db_conn = DatabaseConnection::SQLite(conn);
+    assert_eq!(accounts.len(), 2);
 
-        let result = db_conn.query_run(&queries, query_name, params);
+    // Check that Alice has balance 1700 (2000 - 300)
+    let alice_account = accounts
+        .iter()
+        .find(|account| account.get("name").and_then(|n| n.as_str()) == Some("Alice"));
+    assert!(alice_account.is_some());
+    let alice_balance = alice_account
+        .unwrap()
+        .get("balance")
+        .and_then(|b| b.as_i64());
+    assert_eq!(alice_balance, Some(1700));
 
-        if should_succeed {
-            assert!(result.is_ok(), "Transaction {query_name} should succeed");
-            assert!(result.unwrap().is_empty()); // Multi-statement returns empty
+    // Check that Bob has balance 2300 (2000 + 300)
+    let bob_account = accounts
+        .iter()
+        .find(|account| account.get("name").and_then(|n| n.as_str()) == Some("Bob"));
+    assert!(bob_account.is_some());
+    let bob_balance = bob_account.unwrap().get("balance").and_then(|b| b.as_i64());
+    assert_eq!(bob_balance, Some(2300));
+}
 
-            // Verify ACID properties: all operations completed atomically
-            let accounts = db_conn
-                .query_run(&queries, "select_accounts", &serde_json::json!({}))
-                .unwrap();
-            assert_eq!(
-                accounts.len(),
-                2,
-                "Should have exactly 2 accounts for {query_name}"
-            );
-            assert!(
-                accounts.contains(&serde_json::json!("1")),
-                "Alice account should exist for {query_name}"
-            );
-            assert!(
-                accounts.contains(&serde_json::json!("2")),
-                "Bob account should exist for {query_name}"
-            );
-        } else {
-            assert!(result.is_err(), "Transaction {query_name} should fail");
+#[test]
+fn test_multi_statement_transaction_acid_properties_failure() {
+    // Test failure case to ensure rollback and no data corruption
+    let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, balance INTEGER)",
+        [],
+    )
+    .unwrap();
+    let mut db_conn = DatabaseConnection::SQLite(conn);
 
-            // Verify ACID properties: none of the operations succeeded (rollback)
-            let accounts = db_conn
-                .query_run(&queries, "select_accounts", &serde_json::json!({}))
-                .unwrap();
-            assert_eq!(
-                accounts.len(),
-                0,
-                "Should have zero accounts after rollback for {query_name}"
-            );
-        }
-    }
+    // Execute transfer that should fail (contains invalid SQL)
+    let result = db_conn.query_run(
+        &queries,
+        "multi_statement_failure_transfer",
+        &serde_json::json!({}),
+    );
+    assert!(result.is_err()); // Should fail
+
+    // Verify ACID properties: none of the operations completed due to rollback
+    let accounts_after_failure = db_conn
+        .query_run(&queries, "select_accounts", &serde_json::json!({}))
+        .unwrap();
+    assert_eq!(accounts_after_failure.len(), 0); // No records should exist due to rollback
 }
 
 #[test]

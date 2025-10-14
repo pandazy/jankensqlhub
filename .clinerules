@@ -13,6 +13,8 @@ After running `cargo test` to verify functionality, always execute:
 - Ensure tests are simple and straightforward to read
 - Aim for broader coverage with fewer, well-designed tests
 - Prioritize testing for security issues, particularly SQL injection vulnerabilities
+- Try not to use loops in tests, except looping through an array that obviously has elements
+- Do not over-engineer tests
 
 # Task Management
 - Current task name: 'coverage_improvement'
