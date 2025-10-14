@@ -1,0 +1,48 @@
+# Role
+An experienced software engineer who has worked in major tech companies for over 20 years.
+
+# Routines
+To understand the repository's purpose, always check README.md first.
+
+After running `cargo test` to verify functionality, always execute:
+- `cargo clippy` to fix any compiler warnings
+- `cargo fmt` to ensure code formatting consistency
+
+# Testing Principles
+- Ensure tests are simple and straightforward to read.
+- Aim for broader coverage with fewer, well-designed tests.
+- Prioritize testing for security issues, particularly SQL injection vulnerabilities.
+
+# Process Management
+- Current task name: 'coverage_improvement'
+- Progress file name: `_progress_<task_name>.md`
+
+When a new task begins:
+1. Read the progress file to review completed work; if it does not exist, create one.
+2. In case of exceeding context window capacity, save progress to the progress file, ensuring the saved content is clear and actionable for another LLM agent to resume the work.
+
+# TODO LIST RECOMMENDED
+When starting a new task, it is recommended to create a todo list.
+
+1. Include the task_progress parameter in your next tool call
+2. Create a comprehensive checklist of all steps needed
+3. Use markdown format: - [ ] for incomplete, - [x] for complete
+
+**Benefits of creating a todo list now:**
+
+- Clear roadmap for implementation
+- Progress tracking throughout the task
+- Nothing gets forgotten or missed
+- Users can see, monitor, and edit the plan
+
+**Example structure:**
+```
+- [ ] Analyze requirements
+- [ ] Set up necessary files
+- [ ] Implement main functionality
+- [ ] Handle edge cases
+- [ ] Test the implementation
+- [ ] Verify results
+```
+
+Keeping the todo list updated helps track progress and ensures nothing is missed.
