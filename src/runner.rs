@@ -106,7 +106,7 @@ pub fn execute_query_unified(
     params: &[Box<dyn rusqlite::ToSql>],
     tx: &rusqlite::Transaction,
 ) -> Result<Vec<serde_json::Value>> {
-    if query.sql.starts_with("select") {
+    if query.sql.to_lowercase().starts_with("select") && !query.sql.contains(';') {
         // SELECT query - prepare and execute, return data
         let mut stmt = tx.prepare(&query.sqlite_prepared)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
@@ -129,7 +129,7 @@ fn execute_mutation_query(
     tx: &rusqlite::Transaction,
 ) -> Result<()> {
     if prepared_sql.contains(';') {
-        if params.is_empty() {
+        if !prepared_sql.contains('@') {
             // No parameters - can use execute_batch() for efficiency
             tx.execute_batch(prepared_sql)?;
         } else {
@@ -158,33 +158,26 @@ fn execute_single_statement(
     all_parameters: &[crate::parameters::Parameter],
     all_param_values: &[Box<dyn rusqlite::ToSql>],
 ) -> Result<()> {
-    if statement_sql.contains('@') {
-        // Statement has parameters - find which parameters this statement uses
-        let statement_param_names = str_utils::extract_parameters_in_statement(statement_sql);
-        let mut statement_params: Vec<&Box<dyn rusqlite::ToSql>> = Vec::new();
-        let mut placeholder_sql = statement_sql.to_string();
+    let statement_param_names = str_utils::extract_parameters_in_statement(statement_sql);
+    let mut statement_params: Vec<&Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut placeholder_sql = statement_sql.to_string();
 
-        // Create placeholders for this statement's parameters in order
-        for param_name in statement_param_names {
-            // Find this parameter in the global parameter list and get its value
-            if let Some(global_index) = all_parameters
-                .iter()
-                .position(|global_param| global_param.name == param_name)
-            {
-                statement_params.push(&all_param_values[global_index]);
-                // Replace @param_name with ? placeholder
-                placeholder_sql = placeholder_sql.replace(&format!("@{param_name}"), "?");
-            }
+    // Create placeholders for this statement's parameters in order
+    for param_name in statement_param_names {
+        // Find this parameter in the global parameter list and get its value
+        if let Some(global_index) = all_parameters
+            .iter()
+            .position(|global_param| global_param.name == param_name)
+        {
+            statement_params.push(&all_param_values[global_index]);
+            // Replace @param_name with ? placeholder
+            placeholder_sql = placeholder_sql.replace(&format!("@{param_name}"), "?");
         }
-
-        // Now execute with the correct parameter values for this statement
-        let mut stmt = tx.prepare(&placeholder_sql)?;
-        stmt.execute(rusqlite::params_from_iter(statement_params))
-            .map_err(JankenError::Sqlite)?;
-    } else {
-        // No parameters in this statement
-        tx.execute(statement_sql, []).map_err(JankenError::Sqlite)?;
     }
 
+    // Now execute with the correct parameter values for this statement
+    let mut stmt = tx.prepare(&placeholder_sql)?;
+    stmt.execute(rusqlite::params_from_iter(statement_params))
+        .map_err(JankenError::Sqlite)?;
     Ok(())
 }
