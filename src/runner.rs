@@ -106,62 +106,50 @@ pub fn execute_query_unified(
     params: &[Box<dyn rusqlite::ToSql>],
     tx: &rusqlite::Transaction,
 ) -> Result<Vec<serde_json::Value>> {
-    if query.sql.to_lowercase().starts_with("select") && !query.sql.contains(';') {
-        // SELECT query with returns specified - return structured data
-        if !query.returns.is_empty() {
-            let prepared_sql = prepare_statement_for_query(query, &|idx| format!("?{idx}"))?;
-            let mut stmt = tx.prepare(&prepared_sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
-                let mut obj = serde_json::Map::new();
-                for (idx, field_name) in query.returns.iter().enumerate() {
-                    let value: rusqlite::Result<serde_json::Value> = match row.get_ref(idx) {
-                        Ok(rusqlite::types::ValueRef::Integer(i)) => {
-                            Ok(serde_json::Value::Number(i.into()))
-                        }
-                        Ok(rusqlite::types::ValueRef::Real(r)) => {
-                            if let Some(num) = serde_json::Number::from_f64(r) {
-                                Ok(serde_json::Value::Number(num))
-                            } else {
-                                Ok(serde_json::Value::Null)
-                            }
-                        }
-                        Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
-                            String::from_utf8_lossy(s).to_string(),
-                        )),
-                        Ok(rusqlite::types::ValueRef::Blob(b)) => Ok(serde_json::Value::Array(
-                            b.iter()
-                                .map(|&byte| serde_json::Value::Number(byte.into()))
-                                .collect(),
-                        )),
-                        Ok(rusqlite::types::ValueRef::Null) => Ok(serde_json::Value::Null),
-                        Err(e) => Err(e),
-                    };
-                    match value {
-                        Ok(val) => {
-                            obj.insert(field_name.clone(), val);
-                        }
-                        Err(_) => {
-                            obj.insert(field_name.clone(), serde_json::Value::Null);
+    if !query.returns.is_empty() {
+        // Query with returns specified - return structured data
+        let prepared_sql = prepare_statement_for_query(query, &|idx| format!("?{idx}"))?;
+        let mut stmt = tx.prepare(&prepared_sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            let mut obj = serde_json::Map::new();
+            for (idx, field_name) in query.returns.iter().enumerate() {
+                let value: rusqlite::Result<serde_json::Value> = match row.get_ref(idx) {
+                    Ok(rusqlite::types::ValueRef::Integer(i)) => {
+                        Ok(serde_json::Value::Number(i.into()))
+                    }
+                    Ok(rusqlite::types::ValueRef::Real(r)) => {
+                        if let Some(num) = serde_json::Number::from_f64(r) {
+                            Ok(serde_json::Value::Number(num))
+                        } else {
+                            Ok(serde_json::Value::Null)
                         }
                     }
+                    Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
+                        String::from_utf8_lossy(s).to_string(),
+                    )),
+                    Ok(rusqlite::types::ValueRef::Blob(b)) => Ok(serde_json::Value::Array(
+                        b.iter()
+                            .map(|&byte| serde_json::Value::Number(byte.into()))
+                            .collect(),
+                    )),
+                    Ok(rusqlite::types::ValueRef::Null) => Ok(serde_json::Value::Null),
+                    Err(e) => Err(e),
+                };
+                match value {
+                    Ok(val) => {
+                        obj.insert(field_name.clone(), val);
+                    }
+                    Err(_) => {
+                        obj.insert(field_name.clone(), serde_json::Value::Null);
+                    }
                 }
-                Ok(serde_json::Value::Object(obj))
-            })?;
-            let result = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(result)
-        } else {
-            // Legacy behavior: SELECT query - return array of first column as strings
-            let prepared_sql = prepare_statement_for_query(query, &|idx| format!("?{idx}"))?;
-            let mut stmt = tx.prepare(&prepared_sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
-                let id: i64 = row.get(0)?;
-                Ok(serde_json::Value::String(id.to_string()))
-            })?;
-            let result = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(result)
-        }
+            }
+            Ok(serde_json::Value::Object(obj))
+        })?;
+        let result = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(result)
     } else {
-        // Any mutation query (INSERT/UPDATE/DELETE/etc.) - split and execute within transaction
+        // Mutation query (INSERT/UPDATE/DELETE/etc.) - split and execute within transaction
         execute_mutation_query(query, params, tx)?;
         Ok(vec![])
     }

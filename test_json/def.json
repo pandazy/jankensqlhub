@@ -28,7 +28,8 @@
 		}
 	},
 	"select_all": {
-		"query": "select * from source"
+		"query": "select * from source",
+		"returns": ["id", "name", "score"]
 	},
 	"select_specific": {
 		"query": "select id, name from source where id=@id and name=@name",
