@@ -731,7 +731,6 @@ fn test_sqlite_type_mismatch_errors() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    // Test non-JSON object request_params (covers line ~20)
     let mut conn = setup_db();
     let request_params_string = serde_json::json!("not an object");
     let result = query_run_sqlite(&mut conn, &queries, "int_test", &request_params_string);
@@ -745,7 +744,6 @@ fn test_sqlite_type_mismatch_errors() {
         _ => panic!("Expected ParameterTypeMismatch for non-object, got: {err:?}"),
     }
 
-    // Test integer parameter with wrong type (covers line ~58)
     let mut conn = setup_db();
     let request_params = serde_json::json!({"id": "not_int"});
     let result = query_run_sqlite(&mut conn, &queries, "int_test", &request_params);
@@ -759,7 +757,6 @@ fn test_sqlite_type_mismatch_errors() {
         _ => panic!("Expected ParameterTypeMismatch for integer validation, got: {err:?}"),
     }
 
-    // Test string parameter with wrong type (covers line ~67)
     let mut conn = setup_db();
     let request_params = serde_json::json!({"name": 123});
     let result = query_run_sqlite(&mut conn, &queries, "str_test", &request_params);
@@ -773,7 +770,6 @@ fn test_sqlite_type_mismatch_errors() {
         _ => panic!("Expected ParameterTypeMismatch for string validation, got: {err:?}"),
     }
 
-    // Test float parameter with wrong type (covers line ~74)
     let mut conn = setup_db();
     let request_params = serde_json::json!({"score": "not_a_number"});
     let result = query_run_sqlite(&mut conn, &queries, "float_test", &request_params);
@@ -787,7 +783,6 @@ fn test_sqlite_type_mismatch_errors() {
         _ => panic!("Expected ParameterTypeMismatch for float validation, got: {err:?}"),
     }
 
-    // Test boolean parameter with wrong type (covers line ~84)
     let mut conn = setup_db();
     let request_params = serde_json::json!({"active": []});
     let result = query_run_sqlite(&mut conn, &queries, "bool_test", &request_params);

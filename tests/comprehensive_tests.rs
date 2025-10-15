@@ -231,21 +231,16 @@ fn test_parameter_parsing_edge_cases() {
 
 #[test]
 fn test_str_utils_functionality() {
-    // Test utility functions that exercise the covered lines in str_utils.rs
-    // Covers: line 18 (escaped = false), lines 23/30/31 (quote state), lines 55-61 (splitting), line 80 (extraction)
     use jankensqlhub::str_utils;
 
-    // Test escaped backslash handling - covers line 18 (escaped = false; continue;)
     let sql_with_escape = "SELECT 'string\\'s' FROM table WHERE @param";
     let param_pos = sql_with_escape.find("@param").unwrap();
     assert!(!str_utils::is_in_quotes(sql_with_escape, param_pos));
 
-    // Test quote state management - covers lines 23, 30, 31
     let complex_quotes = r#"SELECT "double" 'single' FROM table WHERE @param"#;
     let param_pos = complex_quotes.find("@param").unwrap();
     assert!(!str_utils::is_in_quotes(complex_quotes, param_pos));
 
-    // Test SQL splitting with both single and double quotes - covers lines 55, 56, 58, 59, 61
     let multi_stmt = r#"INSERT INTO t VALUES ("val"); UPDATE t SET x='value'; SELECT 1"#;
     let statements = str_utils::split_sql_statements(multi_stmt);
     assert_eq!(statements.len(), 3);
@@ -253,7 +248,6 @@ fn test_str_utils_functionality() {
     assert!(statements[1].starts_with("UPDATE"));
     assert!(statements[2].starts_with("SELECT"));
 
-    // Test parameter extraction with better coverage - covers line 80 and surrounding logic
     let stmt = r#"SELECT col FROM t WHERE name='literal\'quote' AND @param='value'"#;
     let params = str_utils::extract_parameters_in_statement(stmt);
     assert_eq!(params.len(), 1);
@@ -286,4 +280,74 @@ fn test_multi_statement_no_params() {
         .query_run(&queries, "select_multiple", &params)
         .unwrap();
     assert_eq!(result.len(), 2);
+}
+
+#[test]
+fn test_sqlite_row_error_handling() {
+    let conn = setup_db();
+    conn.execute(
+        "CREATE TABLE test_wide (a INTEGER, b INTEGER, c INTEGER, d INTEGER)",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO test_wide VALUES (1, 2, 3, 4)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_wide": {
+            "query": "SELECT a, b FROM test_wide",
+            "returns": ["a", "b", "c", "d", "nonexistent_field"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn.query_run(&queries, "select_wide", &params).unwrap();
+
+    assert_eq!(result.len(), 1);
+    let obj = &result[0];
+    assert_eq!(obj.get("a"), Some(&serde_json::json!(1)));
+    assert_eq!(obj.get("b"), Some(&serde_json::json!(2)));
+    assert_eq!(obj.get("c"), Some(&serde_json::json!(null)));
+    assert_eq!(obj.get("d"), Some(&serde_json::json!(null)));
+    assert_eq!(obj.get("nonexistent_field"), Some(&serde_json::json!(null)));
+}
+
+#[test]
+fn test_sqlite_real_nan_handling() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE test_float (id INTEGER, value REAL)", [])
+        .unwrap();
+    // Insert Infinity (1.0/0.0) and invalid text that SQLite can't convert to float
+    conn.execute(
+        "INSERT INTO test_float VALUES (1, 1.0 / 0.0), (2, 'invalid')",
+        [],
+    )
+    .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_float": {
+            "query": "SELECT value FROM test_float ORDER BY id",
+            "returns": ["value"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn
+        .query_run(&queries, "select_float", &params)
+        .unwrap();
+
+    assert_eq!(result.len(), 2);
+    // Check exact response values
+    assert_eq!(result[0], serde_json::json!({"value": null})); // Infinity -> null
+    assert_eq!(result[1], serde_json::json!({"value": "invalid"}));
 }
