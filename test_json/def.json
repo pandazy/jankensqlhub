@@ -1,6 +1,7 @@
 {
 	"my_list": {
 		"query": "select * from source where id=@id and name=@name",
+		"returns": ["id", "name"], 
 		"args": {
 			"id": { "type": "integer" },
 			"name": { "type": "string" }
@@ -27,10 +28,12 @@
 		}
 	},
 	"select_all": {
-		"query": "select * from source"
+		"query": "select * from source",
+		"returns": ["id", "name", "score"]
 	},
 	"select_specific": {
 		"query": "select id, name from source where id=@id and name=@name",
+		"returns": ["id", "name"],
 		"args": {
 			"id": { "type": "integer" },
 			"name": { "type": "string" }
@@ -46,6 +49,7 @@
 	},
 	"select_with_float": {
 		"query": "select * from source where score > @min_score",
+		"returns": ["id", "name"],
 		"args": {
 			"min_score": { "type": "float", "range": [0, 100] }
 		}
@@ -54,7 +58,7 @@
 		"query": "insert into accounts (name, balance) values ('Alice', 1000); insert into accounts (name, balance) values ('Bob', 1000); update accounts set balance = balance - 100 where name = 'Alice'; update accounts set balance = balance + 100 where name = 'Bob';"
 	},
 	"multi_statement_transfer_with_params": {
-		"query": "INSERT INTO accounts (name, balance) VALUES (@from_name, @initial_balance); INSERT INTO accounts (name, balance) VALUES (@to_name, @initial_balance); UPDATE accounts SET balance = balance - @amount WHERE name = @from_name; UPDATE accounts SET balance = balance + @amount WHERE name = @to_name;",
+		"query": "INSERT INTO accounts2 (name, balance) VALUES (@from_name, @initial_balance); INSERT INTO accounts2 (name, balance) VALUES (@to_name, @initial_balance); UPDATE accounts2 SET balance = balance - @amount WHERE name = @from_name; UPDATE accounts2 SET balance = balance + @amount WHERE name = @to_name;",
 		"args": {
 			"from_name": { "type": "string" },
 			"initial_balance": { "type": "integer" },
@@ -66,7 +70,12 @@
 		"query": "INSERT INTO accounts (name, balance) VALUES ('Alice', 1000); INSERT INTO accounts (name, balance) VALUES ('Bob', 1000); UPDATE accounts SET balance = balance - 100 WHERE name = 'Alice'; INVALID STATEMENT; UPDATE accounts SET balance = balance + 100 WHERE name = 'Bob';"
 	},
 	"select_accounts": {
-		"query": "select id, name, balance from accounts order by id"
+		"query": "select id, name, balance from accounts order by id",
+		"returns": ["id", "name", "balance"]
+	},
+	"select_accounts2": {
+		"query": "select id, name, balance from accounts2 order by id",
+		"returns": ["id", "name", "balance"]
 	},
 	"cleanup_accounts": {
 		"query": "delete from accounts"

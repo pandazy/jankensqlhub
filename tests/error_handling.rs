@@ -79,10 +79,10 @@ fn test_parameter_type_mismatch() {
 
 #[test]
 fn test_parameter_validation_range() {
-    // Test range validation for numeric parameters
     let json_definitions = serde_json::json!({
         "select_with_range": {
             "query": "select * from source where id=@id",
+            "returns": ["id", "name", "score"],
             "args": {
                 "id": {
                     "type": "integer",
@@ -99,12 +99,10 @@ fn test_parameter_validation_range() {
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Valid range value should work
     let params = serde_json::json!({"id": 50});
     let result = db_conn.query_run(&queries, "select_with_range", &params);
     assert!(result.is_ok());
 
-    // Value below minimum should fail
     let params = serde_json::json!({"id": 0});
     let err = db_conn
         .query_run(&queries, "select_with_range", &params)
@@ -119,8 +117,7 @@ fn test_parameter_validation_range() {
 }
 
 #[test]
-fn test_parameter_validation_range_not_numeric_value() {
-    // Test that range validation fails for non-numeric values with numeric parameter types
+fn test_parameter_validation_range_non_numeric() {
     let json_definitions = serde_json::json!({
         "select_with_range": {
             "query": "select * from source where id=@id",
@@ -137,41 +134,32 @@ fn test_parameter_validation_range_not_numeric_value() {
     let conn = setup_db();
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test various non-numeric JSON value types with range constraint
-    let json_str = serde_json::json!({"id": "not_int"});
-    let json_bool = serde_json::json!({"id": true});
-    let json_null = serde_json::json!({"id": null});
-    let non_numeric_cases = vec![
-        (&json_str, "string", "\"not_int\""),
-        (&json_bool, "boolean", "true"),
-        (&json_null, "null", "null"),
+    let cases = vec![
+        (serde_json::json!({"id": "not_int"}), "\"not_int\""),
+        (serde_json::json!({"id": true}), "true"),
+        (serde_json::json!({"id": null}), "null"),
     ];
 
-    for (params, expected_type, expected_got) in non_numeric_cases {
+    for (params, expected_got) in cases {
         let err = db_conn
-            .query_run(&queries, "select_with_range", params)
+            .query_run(&queries, "select_with_range", &params)
             .unwrap_err();
         match err {
             JankenError::ParameterTypeMismatch { expected, got } => {
-                assert_eq!(
-                    expected, "number (integer/float)",
-                    "Failed for {expected_got}: expected wrong"
-                );
-                assert_eq!(got, expected_got, "Failed for {expected_got}: got wrong");
+                assert_eq!(expected, "number (integer/float)");
+                assert_eq!(got, expected_got);
             }
-            _ => panic!(
-                "Expected ParameterTypeMismatch for non-numeric value in range validation ({expected_type}), got: {err:?}"
-            ),
+            _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
         }
     }
 }
 
 #[test]
 fn test_parameter_validation_enum() {
-    // Test enum validation for any parameter type
     let json_definitions = serde_json::json!({
         "select_with_enum": {
             "query": "select * from source where name=@status",
+            "returns": ["id", "name", "score"],
             "args": {
                 "status": {
                     "type": "string",
@@ -188,12 +176,10 @@ fn test_parameter_validation_enum() {
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Valid enum value should work
     let params = serde_json::json!({"status": "active"});
     let result = db_conn.query_run(&queries, "select_with_enum", &params);
     assert!(result.is_ok());
 
-    // Invalid enum value should fail
     let params = serde_json::json!({"status": "unknown"});
     let err = db_conn
         .query_run(&queries, "select_with_enum", &params)
@@ -370,10 +356,10 @@ fn test_regex_error() {
 
 #[test]
 fn test_parameter_validation_pattern() {
-    // Test successful regex pattern matching for string validation
     let json_definitions = serde_json::json!({
         "email_query": {
             "query": "select * from source where name = @email",
+            "returns": ["id", "name", "score"],
             "args": {
                 "email": {
                     "type": "string",
@@ -383,6 +369,7 @@ fn test_parameter_validation_pattern() {
         },
         "phone_query": {
             "query": "select * from source where name = @phone",
+            "returns": ["id", "name", "score"],
             "args": {
                 "phone": {
                     "type": "string",
@@ -404,20 +391,14 @@ fn test_parameter_validation_pattern() {
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test valid email pattern
     let params = serde_json::json!({"email": "user@domain.com"});
     let result = db_conn.query_run(&queries, "email_query", &params);
-    assert!(result.is_ok(), "Valid email should pass pattern validation");
+    assert!(result.is_ok());
 
-    // Test valid phone pattern
     let params = serde_json::json!({"phone": "555-123-4567"});
     let result = db_conn.query_run(&queries, "phone_query", &params);
-    assert!(
-        result.is_ok(),
-        "Valid phone number should pass pattern validation"
-    );
+    assert!(result.is_ok());
 
-    // Test invalid email pattern
     let params = serde_json::json!({"email": "invalid-email"});
     let err = db_conn
         .query_run(&queries, "email_query", &params)
@@ -430,7 +411,6 @@ fn test_parameter_validation_pattern() {
         _ => panic!("Expected ParameterTypeMismatch for invalid email pattern, got: {err:?}"),
     }
 
-    // Test invalid phone pattern
     let params = serde_json::json!({"phone": "invalid-phone"});
     let err = db_conn
         .query_run(&queries, "phone_query", &params)
@@ -507,15 +487,14 @@ fn test_parameter_validation_pattern_non_string() {
 }
 
 #[test]
-fn test_parameter_validation_range_non_numeric() {
-    // Test that range validation fails for non-numeric parameter types
+fn test_parameter_validation_range_wrong_type() {
     let json_definitions = serde_json::json!({
         "select_with_range_string": {
             "query": "select * from source where name=@name",
             "args": {
                 "name": {
                     "type": "string",
-                    "range": [1, 100]  // Range constraint on string type should fail
+                    "range": [1, 100]
                 }
             }
         },
@@ -524,7 +503,7 @@ fn test_parameter_validation_range_non_numeric() {
             "args": {
                 "id": {
                     "type": "boolean",
-                    "range": [0, 1]  // Range constraint on boolean type should fail
+                    "range": [0, 1]
                 }
             }
         }
@@ -534,10 +513,8 @@ fn test_parameter_validation_range_non_numeric() {
     let conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'test', NULL)", [])
         .unwrap();
-
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // String parameter with range constraint should fail with "numeric type" error
     let params = serde_json::json!({"name": "test"});
     let err = db_conn
         .query_run(&queries, "select_with_range_string", &params)
@@ -547,12 +524,9 @@ fn test_parameter_validation_range_non_numeric() {
             assert_eq!(expected, "numeric type");
             assert_eq!(got, "string");
         }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for non-numeric range validation, got: {err:?}")
-        }
+        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
     }
 
-    // Boolean parameter with range constraint should fail with "numeric type" error
     let params = serde_json::json!({"id": true});
     let err = db_conn
         .query_run(&queries, "select_with_range_bool", &params)
@@ -562,9 +536,7 @@ fn test_parameter_validation_range_non_numeric() {
             assert_eq!(expected, "numeric type");
             assert_eq!(got, "boolean");
         }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for non-numeric range validation, got: {err:?}")
-        }
+        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
     }
 }
 
@@ -613,6 +585,29 @@ fn test_no_args_provided_for_parameter_in_sql() {
 }
 
 #[test]
+fn test_from_json_invalid_returns_field() {
+    // Test that QueryDefinitions::from_json fails when returns field is not an array
+    let json_definitions = serde_json::json!({
+        "bad_query": {
+            "query": "SELECT * FROM test",
+            "returns": "not an array"
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "array of strings");
+            assert!(got.contains("not an array"));
+        }
+        _ => panic!("Expected ParameterTypeMismatch for invalid returns field, got: {err:?}"),
+    }
+}
+
+#[test]
 fn test_from_json_non_object_input() {
     // Test that QueryDefinitions::from_json fails with expected error when input is not an object
     use jankensqlhub::QueryDefinitions;
@@ -655,6 +650,58 @@ fn test_from_json_non_object_input() {
             assert_eq!(expected, "object");
         }
         _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    }
+}
+
+#[test]
+fn test_from_json_missing_query_field() {
+    // Test that QueryDefinitions::from_json fails when 'query' field is missing
+    use jankensqlhub::QueryDefinitions;
+
+    let json_definitions = serde_json::json!({
+        "missing_query": {
+            "args": {
+                "id": {"type": "integer"}
+            },
+            "returns": ["id", "name"]
+        },
+        "missing_query2": {
+            // completely empty object
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "required 'query' field with string value");
+            assert_eq!(got, "missing_query: missing 'query' field");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for missing query field, got: {err:?}"),
+    }
+}
+
+#[test]
+fn test_from_json_query_definition_not_object() {
+    // Test that QueryDefinitions::from_json fails when query definition is not an object
+    use jankensqlhub::QueryDefinitions;
+
+    let json_definitions = serde_json::json!({
+        "invalid_query_def": "not an object"
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "object");
+            assert_eq!(got, "invalid_query_def: \"not an object\"");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for non-object query definition, got: {err:?}"),
     }
 }
 

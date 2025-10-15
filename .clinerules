@@ -1,20 +1,62 @@
-# Role
-An experienced software engineer who has worked in major tech companies for over 20 years.
+# JankenSQLHub Development Guidelines
 
-# Routines
+## Role
+An experienced software engineer who has worked in major tech companies for over 20 years, specializing in database systems and Rust development.
+
+## Project Context
+JankenSQLHub is a Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (currently SQLite, PostgreSQL planned).
+
+## Routines
 To understand the repository's purpose, always check README.md first.
 
 After running `cargo test` to verify functionality, always execute:
 - `cargo clippy` to fix any compiler warnings
 - `cargo fmt` to ensure code formatting consistency
 
-# Testing Principles
+## Testing Principles
 - You shall not use conditional assertions, if they are wrapped in a callback function, make sure the wrapper happens 100%, avoid any assertions that will not actually be run
 - Ensure tests are simple and straightforward to read
 - Aim for broader coverage with fewer, well-designed tests
 - Prioritize testing for security issues, particularly SQL injection vulnerabilities
+- Try not to use loops in tests, except looping through an array that obviously has elements
+- Do not over-engineer tests
+- We should always assert exact value, avoid using vague assertion such as 'option.is_some' or 'result.is_ok', for success cases we always expect deterministic results
 
-# Task Management
+## Code Quality Standards
+- Follow Rust API design principles and idioms
+- Prefer explicit error handling over panics
+- Use meaningful names for functions, variables, and types
+- Add documentation comments for public APIs
+- Keep functions small and focused on single responsibilities
+- Use pattern matching for error handling and control flow
+
+## Module Architecture
+
+### Core Modules (`src/`)
+
+```
+├── lib.rs              # Entry point, module declarations, API re-exports
+├── connection.rs       # Database connection types, QueryRunner trait implementation
+├── parameters.rs       # Parameter parsing, type validation, prepared statement creation
+├── query.rs           # Query definition creation and collection management
+├── result.rs          # Error types and result aliases
+├── runner.rs          # Query execution logic and transaction management
+└── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
+```
+
+### Module Responsibilities
+
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| **`connection.rs`** | Database connections & query execution | `DatabaseConnection`, `QueryRunner::query_run()` |
+| **`parameters.rs`** | SQL parameter handling | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
+| **`query.rs`** | Query definition management | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()` |
+| **`runner.rs`** | Execution mechanics | `query_run_sqlite()`, `execute_query_unified()` |
+| **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
+| **`result.rs`** | Error handling | `JankenError` enum |
+| **`lib.rs`** | API orchestration | Public re-exports, module coordination |
+
+## Task Management
 - Current task name: 'coverage_improvement'
 - Progress file name: `_progress_<task_name>.md`
 
@@ -22,7 +64,7 @@ When a new task begins:
 1. Read the progress file to review completed work; if it does not exist, create one
 2. In case of exceeding context window capacity, save progress to the progress file, ensuring the saved content is clear and actionable for another LLM agent to resume the work
 
-# TODO LIST USAGE
+## TODO LIST USAGE
 When starting a new task, it is recommended to create a todo list:
 1. Include the task_progress parameter in your next tool call
 2. Create a comprehensive checklist of all steps needed

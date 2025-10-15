@@ -8,37 +8,15 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 
 ### Core Capabilities
 - ✅ **Parameterizable SQL Templates** - `@param_name` syntax in queries, types defined separately
-- ✅ **Multi-Database Support** - SQLite (?1,?2) and PostgreSQL ($1,$2) out-of-the-box
+- ✅ **Multi-Database Support** - SQLite (?1,?2), PostgreSQL planned for future releases
 - ✅ **SQL Injection Protection** - Automatic prepared statement generation
 - ✅ **Quote-Aware Parsing** - Parameters inside quotes are treated as literals
 - ✅ **Type Safety & Validation** - Parameter type validation with constraints (range, pattern, enum)
 - ✅ **Parameter Constraints** - Range limits, regex patterns, and enumerated values supported
 
-## 🏗️ Module Architecture
+## 🚀 Quick Start
 
-### Core Modules (`src/`)
-
-```
-├── lib.rs              # Entry point, module declarations, API re-exports
-├── connection.rs       # Database connection types, QueryRunner trait implementation
-├── parameters.rs       # Parameter parsing, type validation, prepared statement creation
-├── query.rs           # Query definition creation and collection management
-├── result.rs          # Error types and result aliases
-├── runner.rs          # Query execution logic and transaction management
-└── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
-```
-
-### Module Responsibilities
-
-| Module | Purpose | Key Functions |
-|--------|---------|---------------|
-| **`connection.rs`** | Database connections & query execution | `DatabaseConnection`, `QueryRunner` trait |
-| **`parameters.rs`** | SQL parameter handling | `parse_parameters_with_quotes()`, `create_prepared_statement()` |
-| **`query.rs`** | Query definition management | `QueryDef::from_sql()`, `QueryDefinitions::from_file()` |
-| **`runner.rs`** | Execution mechanics | `query_run_sqlite()`, transaction handling |
-| **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
-| **`result.rs`** | Error handling | `JankenError` enum |
-| **`lib.rs`** | API orchestration | Public re-exports, module coordination |
+**Janken SQL Hub** enables developers to define SQL queries with parameters in a database-agnostic way, automatically generating prepared statements for different database backends while preventing SQL injection attacks.
 
 ## ✨ Key Features
 
@@ -68,10 +46,17 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
 ## 🚀 Usage Guide
 
 ### 1. Define Queries (JSON Configuration)
+
+Each query definition contains:
+- `"query"`: Required - The SQL statement with `@parameter` placeholders
+- `"args"`: Required when `@parameter` placeholders are used in the query
+  - Parameter definitions with types and constraints. If any `@param_name` is used in the SQL, the `args` object must define all parameters with their types.
+- `"returns"`: Optional - Array of column names for SELECT queries (determines JSON response structure)
 ```json
 {
   "get_user": {
-    "query": "SELECT * FROM users WHERE id=@user_id",
+    "query": "SELECT id, name, email FROM users WHERE id=@user_id",
+    "returns": ["id", "name", "email"],
     "args": {
       "user_id": {"type": "integer"}
     }
@@ -84,7 +69,8 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
     }
   },
   "search_users": {
-    "query": "SELECT * FROM users WHERE age > @min_age AND age < @max_age",
+    "query": "SELECT id, name FROM users WHERE age > @min_age AND age < @max_age",
+    "returns": ["id", "name"],
     "args": {
       "min_age": {"type": "integer"},
       "max_age": {"type": "integer"}
@@ -92,6 +78,7 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
   },
   "get_user_by_status": {
     "query": "SELECT * FROM users WHERE status=@status",
+    "returns": ["id", "name", "email", "status"],
     "args": {
       "status": {
         "type": "string",
@@ -101,6 +88,7 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
   },
   "get_user_by_email": {
     "query": "SELECT * FROM users WHERE email LIKE @pattern",
+    "returns": ["id", "name", "email"],
     "args": {
       "pattern": {
         "type": "string",

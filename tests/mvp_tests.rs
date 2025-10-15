@@ -23,36 +23,32 @@ fn test_sqlite_select_all_no_params() {
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test select all
     let params = serde_json::json!({});
     let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
-    // Verify all records with their IDs
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&serde_json::json!("1"))); // John with id=1
-    assert!(result.contains(&serde_json::json!("2"))); // Jane with id=2
+    assert!(result.contains(&serde_json::json!({"id": 1, "name": "John", "score": null})));
+    assert!(result.contains(&serde_json::json!({"id": 2, "name": "Jane", "score": null})));
 }
 
 #[test]
 fn test_sqlite_insert_with_params() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
     let conn = setup_db();
-
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Insert
     let params = serde_json::json!({"name": "NewGuy"});
     let insert_result = db_conn
         .query_run(&queries, "insert_single", &params)
         .unwrap();
-    // Insert operations return empty results
     assert!(insert_result.is_empty());
 
-    // Verify by select all
     let params = serde_json::json!({});
     let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
-    // Should return the newly inserted record (with auto-incremented ID)
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0], serde_json::json!("1")); // First inserted record gets ID=1
+    assert_eq!(
+        result[0],
+        serde_json::json!({"id": 1, "name": "NewGuy", "score": null})
+    );
 }
 
 #[test]
@@ -68,10 +64,46 @@ fn test_sqlite_update_with_params() {
     let params = serde_json::json!({"new_id": 10, "new_name": "NewJohn", "old_id": 1});
     db_conn.query_run(&queries, "my_action", &params).unwrap();
 
-    // Verify by select specific with new id
+    // Verify by select specific with new id - returns structured data now
     let params = serde_json::json!({"id": 10, "name": "NewJohn"});
     let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
-    assert_eq!(result, vec![serde_json::json!("10")]);
+    assert_eq!(
+        result,
+        vec![serde_json::json!({"id": 10, "name": "NewJohn"})]
+    );
+}
+
+#[test]
+fn test_sqlite_blob_column_type() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE test_table (id INTEGER, data BLOB)", [])
+        .unwrap();
+    conn.execute(
+        "INSERT INTO test_table VALUES (1, X'010203'), (2, NULL)",
+        [],
+    )
+    .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_blob": {
+            "query": "SELECT id, data FROM test_table ORDER BY id",
+            "returns": ["id", "data"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn.query_run(&queries, "select_blob", &params).unwrap();
+
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].get("id"), Some(&serde_json::json!(1)));
+    assert_eq!(result[0].get("data"), Some(&serde_json::json!([1, 2, 3])));
+    assert_eq!(result[1].get("id"), Some(&serde_json::json!(2)));
+    assert_eq!(result[1].get("data"), Some(&serde_json::json!(null)));
 }
 
 #[test]
@@ -85,7 +117,6 @@ fn test_boolean_params() {
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test boolean parameters using the new args format
     let json_definitions = serde_json::json!({
         "insert_with_bool": {
             "query": "insert into source (id, name, score) values (@id, @name, @active)",
@@ -97,6 +128,7 @@ fn test_boolean_params() {
         },
         "select_by_bool": {
             "query": "select * from source where score = @active",
+            "returns": ["id", "name", "score"],
             "args": {
                 "active": { "type": "boolean" }
             }
@@ -105,37 +137,33 @@ fn test_boolean_params() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    // Insert with boolean true (should convert to 1)
     let params = serde_json::json!({"id": 3, "name": "user3", "active": true});
     let insert_result = db_conn
         .query_run(&queries, "insert_with_bool", &params)
         .unwrap();
-    assert!(insert_result.is_empty()); // INSERT returns empty
+    assert!(insert_result.is_empty());
 
-    // Insert with boolean false (should convert to 0)
     let params = serde_json::json!({"id": 4, "name": "user4", "active": false});
     db_conn
         .query_run(&queries, "insert_with_bool", &params)
         .unwrap();
 
-    // Select rows where active=true (should convert to score=1)
     let params = serde_json::json!({"active": true});
     let result = db_conn
         .query_run(&queries, "select_by_bool", &params)
         .unwrap();
 
-    // Should return original active record (id=1), inserted active record (id=3), but not inactive records
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&serde_json::json!("1"))); // Original active user
-    assert!(result.contains(&serde_json::json!("3"))); // New active user
+    assert!(result.contains(&serde_json::json!({"id": 1, "name": "active", "score": 1.0})));
+    assert!(result.contains(&serde_json::json!({"id": 3, "name": "user3", "score": 1.0})));
 }
 
 #[test]
 fn test_loading_from_json_value() {
-    // Create query definitions as a serde_json::Value object with new args format
     let json_definitions = serde_json::json!({
         "test_select": {
             "query": "select * from source where id=@id",
+            "returns": ["id", "name", "score"],
             "args": {
                 "id": { "type": "integer" }
             }
@@ -151,30 +179,30 @@ fn test_loading_from_json_value() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
     let conn = setup_db();
-
-    // Insert test data
     conn.execute("INSERT INTO source VALUES (42, 'Test', NULL)", [])
         .unwrap();
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test the queries loaded from JSON object
     let params = serde_json::json!({"id": 42});
     let result = db_conn.query_run(&queries, "test_select", &params).unwrap();
     assert!(!result.is_empty());
-    assert_eq!(result[0], serde_json::json!("42")); // Should return the id=42 row
+    assert_eq!(
+        result[0],
+        serde_json::json!({"id": 42, "name": "Test", "score": null})
+    );
 
-    // Test insert - should add record with id=99, name="JsonLoaded"
     let params = serde_json::json!({"id": 99, "name": "JsonLoaded"});
     let insert_result = db_conn.query_run(&queries, "test_insert", &params).unwrap();
-    // Insert operations return empty results
     assert!(insert_result.is_empty());
 
-    // Verify the inserted record can be selected
     let params = serde_json::json!({"id": 99});
     let result = db_conn.query_run(&queries, "test_select", &params).unwrap();
     assert!(!result.is_empty());
-    assert_eq!(result[0], serde_json::json!("99")); // Should return the inserted id=99 row
+    assert_eq!(
+        result[0],
+        serde_json::json!({"id": 99, "name": "JsonLoaded", "score": null})
+    );
 }
 
 #[test]
@@ -202,9 +230,79 @@ fn test_sqlite_float_params() {
         .query_run(&queries, "select_with_float", &params)
         .unwrap();
 
-    // Should return both Bob (id=3) and Jane (id=2)
+    // Should return both Bob (id=3) and Jane (id=2) as structured objects
     assert_eq!(result.len(), 2);
-    // Check that we got the expected IDs (Bob and Jane)
-    assert!(result.contains(&serde_json::json!("2"))); // Jane with score 8.2
-    assert!(result.contains(&serde_json::json!("3"))); // Bob with score 7.0
+    // Check that we got the expected structured data for Bob and Jane
+    assert!(result.contains(&serde_json::json!({"id": 2, "name": "Jane"}))); // Jane with score 8.2
+    assert!(result.contains(&serde_json::json!({"id": 3, "name": "Bob"}))); // Bob with score 7.0
+}
+
+#[test]
+fn test_sqlite_row_error_handling() {
+    let conn = setup_db();
+    conn.execute(
+        "CREATE TABLE test_wide (a INTEGER, b INTEGER, c INTEGER, d INTEGER)",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO test_wide VALUES (1, 2, 3, 4)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_wide": {
+            "query": "SELECT a, b FROM test_wide",
+            "returns": ["a", "b", "c", "d", "nonexistent_field"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn.query_run(&queries, "select_wide", &params).unwrap();
+
+    assert_eq!(result.len(), 1);
+    let obj = &result[0];
+    assert_eq!(obj.get("a"), Some(&serde_json::json!(1)));
+    assert_eq!(obj.get("b"), Some(&serde_json::json!(2)));
+    assert_eq!(obj.get("c"), Some(&serde_json::json!(null)));
+    assert_eq!(obj.get("d"), Some(&serde_json::json!(null)));
+    assert_eq!(obj.get("nonexistent_field"), Some(&serde_json::json!(null)));
+}
+
+#[test]
+fn test_sqlite_real_nan_handling() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE test_float (id INTEGER, value REAL)", [])
+        .unwrap();
+    // Insert Infinity (1.0/0.0) and invalid text that SQLite can't convert to float
+    conn.execute(
+        "INSERT INTO test_float VALUES (1, 1.0 / 0.0), (2, 'invalid')",
+        [],
+    )
+    .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_float": {
+            "query": "SELECT value FROM test_float ORDER BY id",
+            "returns": ["value"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn
+        .query_run(&queries, "select_float", &params)
+        .unwrap();
+
+    assert_eq!(result.len(), 2);
+    // Check exact response values
+    assert_eq!(result[0], serde_json::json!({"value": null})); // Infinity -> null
+    assert_eq!(result[1], serde_json::json!({"value": "invalid"}));
 }

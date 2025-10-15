@@ -174,28 +174,6 @@ pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
     Ok(parameters)
 }
 
-/// Create prepared statement by replacing parameters with placeholders
-/// Takes a closure that generates the placeholder format for each parameter index
-pub fn create_prepared_statement<F>(
-    sql: &str,
-    parameters: &[Parameter],
-    placeholder_gen: F,
-) -> Result<String>
-where
-    F: Fn(usize) -> String,
-{
-    let mut result = sql.to_string();
-    let offsets = compute_parameter_offsets(sql, parameters)?;
-
-    // Replace in reverse order to maintain correct positions
-    for (param_idx, offset) in offsets.iter().enumerate().rev() {
-        let placeholder = placeholder_gen(param_idx + 1); // 1-indexed
-        result.replace_range(offset.start..offset.end, &placeholder);
-    }
-
-    Ok(result)
-}
-
 /// Check if SQL contains transaction control keywords that conflict with rusqlite
 pub fn contains_transaction_keywords(sql: &str) -> bool {
     let upper_sql = sql.to_uppercase();
@@ -204,28 +182,4 @@ pub fn contains_transaction_keywords(sql: &str) -> bool {
         || upper_sql.contains("ROLLBACK")
         || upper_sql.contains("START TRANSACTION")
         || upper_sql.contains("END TRANSACTION")
-}
-
-/// Compute parameter offsets in SQL, excluding quoted parameters
-pub fn compute_parameter_offsets(
-    sql: &str,
-    parameters: &[Parameter],
-) -> Result<Vec<std::ops::Range<usize>>> {
-    let mut offsets = Vec::new();
-    let mut param_iter = parameters.iter();
-
-    for mat in PARAMETER_REGEX.find_iter(sql) {
-        // Check if this parameter is inside quotes
-        if is_in_quotes(sql, mat.start()) {
-            // Skip parameters inside quotes
-            continue;
-        }
-
-        // This is a parameter we're keeping
-        if let Some(_param) = param_iter.next() {
-            offsets.push(mat.range());
-        }
-    }
-
-    Ok(offsets)
 }

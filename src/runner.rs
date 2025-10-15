@@ -1,5 +1,5 @@
 use crate::{
-    QueryDefinitions,
+    ParameterType, QueryDefinitions,
     result::{JankenError, Result},
     str_utils,
 };
@@ -48,16 +48,7 @@ pub fn query_run_sqlite(
             .validate(value, &param_def.param_type)?;
 
         match &param_def.param_type {
-            crate::parameters::ParameterType::Integer => {
-                let int_val = value
-                    .as_i64()
-                    .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                        expected: "integer".to_string(),
-                        got: value.to_string(),
-                    })?;
-                request_param_values.push(Box::new(int_val));
-            }
-            crate::parameters::ParameterType::String => {
+            ParameterType::String => {
                 let str_val = value
                     .as_str()
                     .ok_or_else(|| JankenError::ParameterTypeMismatch {
@@ -66,7 +57,16 @@ pub fn query_run_sqlite(
                     })?;
                 request_param_values.push(Box::new(str_val.to_string()));
             }
-            crate::parameters::ParameterType::Float => {
+            ParameterType::Integer => {
+                let int_val = value
+                    .as_i64()
+                    .ok_or_else(|| JankenError::ParameterTypeMismatch {
+                        expected: "integer".to_string(),
+                        got: value.to_string(),
+                    })?;
+                request_param_values.push(Box::new(int_val));
+            }
+            ParameterType::Float => {
                 let float_val =
                     value
                         .as_f64()
@@ -76,7 +76,7 @@ pub fn query_run_sqlite(
                         })?;
                 request_param_values.push(Box::new(float_val));
             }
-            crate::parameters::ParameterType::Boolean => {
+            ParameterType::Boolean => {
                 let bool_val =
                     value
                         .as_bool()
@@ -106,32 +106,59 @@ pub fn execute_query_unified(
     params: &[Box<dyn rusqlite::ToSql>],
     tx: &rusqlite::Transaction,
 ) -> Result<Vec<serde_json::Value>> {
-    if query.sql.to_lowercase().starts_with("select") && !query.sql.contains(';') {
-        // SELECT query - prepare and execute, return data
-        let mut stmt = tx.prepare(&query.sqlite_prepared)?;
+    if !query.returns.is_empty() {
+        // Query with returns specified - return structured data
+        let (prepared_sql, _) =
+            prepare_single_statement(&query.sql, &query.parameters, &|idx| format!("?{idx}"))?;
+        let mut stmt = tx.prepare(&prepared_sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
-            let id: i64 = row.get(0)?;
-            Ok(serde_json::Value::String(id.to_string()))
+            let mut obj = serde_json::Map::new();
+            for (idx, field_name) in query.returns.iter().enumerate() {
+                let value: rusqlite::Result<serde_json::Value> = match row.get_ref(idx) {
+                    Ok(rusqlite::types::ValueRef::Integer(i)) => {
+                        Ok(serde_json::Value::Number(i.into()))
+                    }
+                    Ok(rusqlite::types::ValueRef::Real(r)) => Ok(serde_json::Value::from(r)),
+                    Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
+                        String::from_utf8_lossy(s).to_string(),
+                    )),
+                    Ok(rusqlite::types::ValueRef::Blob(b)) => Ok(serde_json::Value::Array(
+                        b.iter()
+                            .map(|&byte| serde_json::Value::Number(byte.into()))
+                            .collect(),
+                    )),
+                    Ok(rusqlite::types::ValueRef::Null) => Ok(serde_json::Value::Null),
+                    Err(e) => Err(e),
+                };
+                match value {
+                    Ok(val) => {
+                        obj.insert(field_name.clone(), val);
+                    }
+                    Err(_) => {
+                        obj.insert(field_name.clone(), serde_json::Value::Null);
+                    }
+                }
+            }
+            Ok(serde_json::Value::Object(obj))
         })?;
         let result = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(result)
     } else {
-        // Any mutation query (INSERT/UPDATE/DELETE/etc.) - split and execute within transaction
-        execute_mutation_query(query, &query.sqlite_prepared, params, tx)?;
+        // Mutation query (INSERT/UPDATE/DELETE/etc.) - split and execute within transaction
+        execute_mutation_query(query, params, tx)?;
         Ok(vec![])
     }
 }
 
 fn execute_mutation_query(
     query: &crate::query::QueryDef,
-    prepared_sql: &str,
     params: &[Box<dyn rusqlite::ToSql>],
     tx: &rusqlite::Transaction,
 ) -> Result<()> {
-    if prepared_sql.contains(';') {
-        if !prepared_sql.contains('@') {
+    if query.sql.contains(';') {
+        if !query.sql.contains('@') {
             // No parameters - can use execute_batch() for efficiency
-            tx.execute_batch(prepared_sql)?;
+            tx.execute_batch(&query.sql)?;
         } else {
             // Has parameters - split into individual statements and execute each one
             let individual_statements = str_utils::split_sql_statements(&query.sql);
@@ -143,12 +170,46 @@ fn execute_mutation_query(
         }
     } else {
         // Single-statement mutation - prepare and execute normally with all parameters
-        let mut stmt = tx.prepare(prepared_sql)?;
+        let (prepared_sql, _) =
+            prepare_single_statement(&query.sql, &query.parameters, &|idx| format!("?{idx}"))?;
+        let mut stmt = tx.prepare(&prepared_sql)?;
         stmt.execute(rusqlite::params_from_iter(params))
             .map_err(JankenError::Sqlite)?;
     }
 
     Ok(())
+}
+
+/// Create a prepared statement from SQL with proper parameter replacement
+/// Returns the prepared SQL and the parameter indices that should be used
+fn prepare_single_statement(
+    statement_sql: &str,
+    all_parameters: &[crate::parameters::Parameter],
+    placeholder_gen: &dyn Fn(usize) -> String,
+) -> Result<(String, Vec<usize>)> {
+    let statement_param_names = str_utils::extract_parameters_in_statement(statement_sql);
+    let mut placeholder_sql = statement_sql.to_string();
+    let mut param_positions = Vec::new();
+    let mut next_placeholder_idx = 1;
+
+    // Replace parameters in order and track their positions in the global parameter list
+    for param_name in statement_param_names {
+        // Find this parameter in the global parameter list
+        if let Some(global_index) = all_parameters
+            .iter()
+            .position(|global_param| global_param.name == param_name)
+        {
+            param_positions.push(global_index);
+            // Replace @param_name with placeholder format (e.g., ?1, $1, ?)
+            placeholder_sql = placeholder_sql.replace(
+                &format!("@{param_name}"),
+                &placeholder_gen(next_placeholder_idx),
+            );
+            next_placeholder_idx += 1;
+        }
+    }
+
+    Ok((placeholder_sql, param_positions))
 }
 
 /// Execute a single SQL statement with its appropriate parameters
@@ -158,22 +219,14 @@ fn execute_single_statement(
     all_parameters: &[crate::parameters::Parameter],
     all_param_values: &[Box<dyn rusqlite::ToSql>],
 ) -> Result<()> {
-    let statement_param_names = str_utils::extract_parameters_in_statement(statement_sql);
-    let mut statement_params: Vec<&Box<dyn rusqlite::ToSql>> = Vec::new();
-    let mut placeholder_sql = statement_sql.to_string();
+    let (placeholder_sql, param_positions) =
+        prepare_single_statement(statement_sql, all_parameters, &|idx| format!("?{idx}"))?;
 
-    // Create placeholders for this statement's parameters in order
-    for param_name in statement_param_names {
-        // Find this parameter in the global parameter list and get its value
-        if let Some(global_index) = all_parameters
-            .iter()
-            .position(|global_param| global_param.name == param_name)
-        {
-            statement_params.push(&all_param_values[global_index]);
-            // Replace @param_name with ? placeholder
-            placeholder_sql = placeholder_sql.replace(&format!("@{param_name}"), "?");
-        }
-    }
+    // Collect the parameter values for this statement in the correct order
+    let statement_params: Vec<&Box<dyn rusqlite::ToSql>> = param_positions
+        .iter()
+        .map(|&idx| &all_param_values[idx])
+        .collect();
 
     // Now execute with the correct parameter values for this statement
     let mut stmt = tx.prepare(&placeholder_sql)?;

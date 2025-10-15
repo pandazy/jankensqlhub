@@ -1,1 +1,1 @@
-- fix: updated parameter checks and added missing test cases
+- optimized functionality, supporting explicit read/update control
