@@ -118,13 +118,7 @@ pub fn execute_query_unified(
                     Ok(rusqlite::types::ValueRef::Integer(i)) => {
                         Ok(serde_json::Value::Number(i.into()))
                     }
-                    Ok(rusqlite::types::ValueRef::Real(r)) => {
-                        if let Some(num) = serde_json::Number::from_f64(r) {
-                            Ok(serde_json::Value::Number(num))
-                        } else {
-                            Ok(serde_json::Value::Null)
-                        }
-                    }
+                    Ok(rusqlite::types::ValueRef::Real(r)) => Ok(serde_json::Value::from(r)),
                     Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
                         String::from_utf8_lossy(s).to_string(),
                     )),

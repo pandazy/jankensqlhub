@@ -74,6 +74,39 @@ fn test_sqlite_update_with_params() {
 }
 
 #[test]
+fn test_sqlite_blob_column_type() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE test_table (id INTEGER, data BLOB)", [])
+        .unwrap();
+    conn.execute(
+        "INSERT INTO test_table VALUES (1, X'010203'), (2, NULL)",
+        [],
+    )
+    .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_blob": {
+            "query": "SELECT id, data FROM test_table ORDER BY id",
+            "returns": ["id", "data"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn.query_run(&queries, "select_blob", &params).unwrap();
+
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].get("id"), Some(&serde_json::json!(1)));
+    assert_eq!(result[0].get("data"), Some(&serde_json::json!([1, 2, 3])));
+    assert_eq!(result[1].get("id"), Some(&serde_json::json!(2)));
+    assert_eq!(result[1].get("data"), Some(&serde_json::json!(null)));
+}
+
+#[test]
 fn test_boolean_params() {
     let conn = setup_db();
     conn.execute(
@@ -202,4 +235,74 @@ fn test_sqlite_float_params() {
     // Check that we got the expected structured data for Bob and Jane
     assert!(result.contains(&serde_json::json!({"id": 2, "name": "Jane"}))); // Jane with score 8.2
     assert!(result.contains(&serde_json::json!({"id": 3, "name": "Bob"}))); // Bob with score 7.0
+}
+
+#[test]
+fn test_sqlite_row_error_handling() {
+    let conn = setup_db();
+    conn.execute(
+        "CREATE TABLE test_wide (a INTEGER, b INTEGER, c INTEGER, d INTEGER)",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO test_wide VALUES (1, 2, 3, 4)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_wide": {
+            "query": "SELECT a, b FROM test_wide",
+            "returns": ["a", "b", "c", "d", "nonexistent_field"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn.query_run(&queries, "select_wide", &params).unwrap();
+
+    assert_eq!(result.len(), 1);
+    let obj = &result[0];
+    assert_eq!(obj.get("a"), Some(&serde_json::json!(1)));
+    assert_eq!(obj.get("b"), Some(&serde_json::json!(2)));
+    assert_eq!(obj.get("c"), Some(&serde_json::json!(null)));
+    assert_eq!(obj.get("d"), Some(&serde_json::json!(null)));
+    assert_eq!(obj.get("nonexistent_field"), Some(&serde_json::json!(null)));
+}
+
+#[test]
+fn test_sqlite_real_nan_handling() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE test_float (id INTEGER, value REAL)", [])
+        .unwrap();
+    // Insert Infinity (1.0/0.0) and invalid text that SQLite can't convert to float
+    conn.execute(
+        "INSERT INTO test_float VALUES (1, 1.0 / 0.0), (2, 'invalid')",
+        [],
+    )
+    .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_float": {
+            "query": "SELECT value FROM test_float ORDER BY id",
+            "returns": ["value"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({});
+    let result = db_conn
+        .query_run(&queries, "select_float", &params)
+        .unwrap();
+
+    assert_eq!(result.len(), 2);
+    // Check exact response values
+    assert_eq!(result[0], serde_json::json!({"value": null})); // Infinity -> null
+    assert_eq!(result[1], serde_json::json!({"value": "invalid"}));
 }
