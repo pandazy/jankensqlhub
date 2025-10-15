@@ -124,43 +124,50 @@ impl QueryDefinitions {
 
         let mut definitions = HashMap::new();
         for (name, value) in json_map {
-            let map = if let Some(obj) = value.as_object() {
-                obj
-            } else {
-                continue;
-            };
-            if let Some(serde_json::Value::String(sql)) = map.get("query") {
-                let args = map.get("args").and_then(|a| a.as_object());
-                let mut query_def = QueryDef::from_sql(sql, args)?;
+            let map = value
+                .as_object()
+                .ok_or_else(|| JankenError::ParameterTypeMismatch {
+                    expected: "object".to_string(),
+                    got: format!("{name}: {value}"),
+                })?;
 
-                // Parse returns field
-                if let Some(returns_val) = map.get("returns") {
-                    if let Some(returns_array) = returns_val.as_array() {
-                        let returns: Vec<String> = returns_array
-                            .iter()
-                            .filter_map(|v| v.as_str())
-                            .map(|s| s.to_string())
-                            .collect();
-                        // Deduplicate using a set but maintain order
-                        let mut seen = std::collections::HashSet::new();
-                        let unique_returns: Vec<String> = returns
-                            .into_iter()
-                            .filter(|item| seen.insert(item.clone()))
-                            .collect();
-                        query_def.returns = unique_returns;
-                    } else {
-                        return Err(JankenError::ParameterTypeMismatch {
-                            expected: "array of strings".to_string(),
-                            got: returns_val.to_string(),
-                        });
-                    }
-                } else {
-                    // No returns specified - empty array
-                    query_def.returns = Vec::new();
+            let sql = map.get("query").and_then(|q| q.as_str()).ok_or_else(|| {
+                JankenError::ParameterTypeMismatch {
+                    expected: "required 'query' field with string value".to_string(),
+                    got: format!("{name}: missing 'query' field"),
                 }
+            })?;
 
-                definitions.insert(name.clone(), query_def);
+            let args = map.get("args").and_then(|a| a.as_object());
+            let mut query_def = QueryDef::from_sql(sql, args)?;
+
+            // Parse returns field
+            if let Some(returns_val) = map.get("returns") {
+                if let Some(returns_array) = returns_val.as_array() {
+                    let returns: Vec<String> = returns_array
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .collect();
+                    // Deduplicate using a set but maintain order
+                    let mut seen = std::collections::HashSet::new();
+                    let unique_returns: Vec<String> = returns
+                        .into_iter()
+                        .filter(|item| seen.insert(item.clone()))
+                        .collect();
+                    query_def.returns = unique_returns;
+                } else {
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: "array of strings".to_string(),
+                        got: returns_val.to_string(),
+                    });
+                }
+            } else {
+                // No returns specified - empty array
+                query_def.returns = Vec::new();
             }
+
+            definitions.insert(name.clone(), query_def);
         }
         Ok(QueryDefinitions { definitions })
     }

@@ -654,6 +654,58 @@ fn test_from_json_non_object_input() {
 }
 
 #[test]
+fn test_from_json_missing_query_field() {
+    // Test that QueryDefinitions::from_json fails when 'query' field is missing
+    use jankensqlhub::QueryDefinitions;
+
+    let json_definitions = serde_json::json!({
+        "missing_query": {
+            "args": {
+                "id": {"type": "integer"}
+            },
+            "returns": ["id", "name"]
+        },
+        "missing_query2": {
+            // completely empty object
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "required 'query' field with string value");
+            assert_eq!(got, "missing_query: missing 'query' field");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for missing query field, got: {err:?}"),
+    }
+}
+
+#[test]
+fn test_from_json_query_definition_not_object() {
+    // Test that QueryDefinitions::from_json fails when query definition is not an object
+    use jankensqlhub::QueryDefinitions;
+
+    let json_definitions = serde_json::json!({
+        "invalid_query_def": "not an object"
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "object");
+            assert_eq!(got, "invalid_query_def: \"not an object\"");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for non-object query definition, got: {err:?}"),
+    }
+}
+
+#[test]
 fn test_sqlite_type_mismatch_errors() {
     // Test parameter type mismatch errors for all types and non-object request_params
     // This covers error handling in query_run_sqlite for parameter validation
