@@ -30,6 +30,32 @@ After running `cargo test` to verify functionality, always execute:
 - Keep functions small and focused on single responsibilities
 - Use pattern matching for error handling and control flow
 
+## Module Architecture
+
+### Core Modules (`src/`)
+
+```
+├── lib.rs              # Entry point, module declarations, API re-exports
+├── connection.rs       # Database connection types, QueryRunner trait implementation
+├── parameters.rs       # Parameter parsing, type validation, prepared statement creation
+├── query.rs           # Query definition creation and collection management
+├── result.rs          # Error types and result aliases
+├── runner.rs          # Query execution logic and transaction management
+└── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
+```
+
+### Module Responsibilities
+
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| **`connection.rs`** | Database connections & query execution | `DatabaseConnection`, `QueryRunner::query_run()` |
+| **`parameters.rs`** | SQL parameter handling | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
+| **`query.rs`** | Query definition management | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()` |
+| **`runner.rs`** | Execution mechanics | `query_run_sqlite()`, `execute_query_unified()` |
+| **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
+| **`result.rs`** | Error handling | `JankenError` enum |
+| **`lib.rs`** | API orchestration | Public re-exports, module coordination |
+
 ## Task Management
 - Current task name: 'coverage_improvement'
 - Progress file name: `_progress_<task_name>.md`
