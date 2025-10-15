@@ -108,7 +108,8 @@ pub fn execute_query_unified(
 ) -> Result<Vec<serde_json::Value>> {
     if !query.returns.is_empty() {
         // Query with returns specified - return structured data
-        let prepared_sql = prepare_statement_for_query(query, &|idx| format!("?{idx}"))?;
+        let (prepared_sql, _) =
+            prepare_single_statement(&query.sql, &query.parameters, &|idx| format!("?{idx}"))?;
         let mut stmt = tx.prepare(&prepared_sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
             let mut obj = serde_json::Map::new();
@@ -155,32 +156,6 @@ pub fn execute_query_unified(
     }
 }
 
-/// Prepare a statement for an entire query (single or multi-statement)
-/// Returns the prepared SQL that can be executed
-fn prepare_statement_for_query(
-    query: &crate::query::QueryDef,
-    placeholder_gen: &dyn Fn(usize) -> String,
-) -> Result<String> {
-    if query.sql.contains(';') {
-        // Multi-statement: split and prepare each statement, then join them
-        let individual_statements = str_utils::split_sql_statements(&query.sql);
-        let mut prepared_statements = Vec::new();
-
-        for statement_sql in individual_statements {
-            let (prepared_sql, _) =
-                prepare_single_statement(&statement_sql, &query.parameters, placeholder_gen)?;
-            prepared_statements.push(prepared_sql);
-        }
-
-        Ok(prepared_statements.join("; "))
-    } else {
-        // Single statement: prepare directly
-        let (prepared_sql, _) =
-            prepare_single_statement(&query.sql, &query.parameters, placeholder_gen)?;
-        Ok(prepared_sql)
-    }
-}
-
 fn execute_mutation_query(
     query: &crate::query::QueryDef,
     params: &[Box<dyn rusqlite::ToSql>],
@@ -201,7 +176,8 @@ fn execute_mutation_query(
         }
     } else {
         // Single-statement mutation - prepare and execute normally with all parameters
-        let prepared_sql = prepare_statement_for_query(query, &|idx| format!("?{idx}"))?;
+        let (prepared_sql, _) =
+            prepare_single_statement(&query.sql, &query.parameters, &|idx| format!("?{idx}"))?;
         let mut stmt = tx.prepare(&prepared_sql)?;
         stmt.execute(rusqlite::params_from_iter(params))
             .map_err(JankenError::Sqlite)?;
