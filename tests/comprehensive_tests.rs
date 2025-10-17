@@ -134,7 +134,7 @@ fn test_sql_injection_protection_name_parameter() {
         .query_run(&queries, "insert_single", &params)
         .unwrap();
 
-    let params = serde_json::json!({"id": 1, "name": "TestUser"});
+    let params = serde_json::json!({"id": 1, "name": "TestUser", "source": "source"});
     let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
     assert!(!result.is_empty());
 
@@ -350,4 +350,61 @@ fn test_sqlite_real_nan_handling() {
     // Check exact response values
     assert_eq!(result[0], serde_json::json!({"value": null})); // Infinity -> null
     assert_eq!(result[1], serde_json::json!({"value": "invalid"}));
+}
+
+#[test]
+fn test_multi_table_name_parameters() {
+    let conn = Connection::open_in_memory().unwrap();
+
+    // Create three tables with test data
+    conn.execute(
+        "CREATE TABLE table1 (id INTEGER PRIMARY KEY, name TEXT)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE table2 (id INTEGER PRIMARY KEY, name TEXT)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE table3 (id INTEGER PRIMARY KEY, name TEXT)",
+        [],
+    )
+    .unwrap();
+
+    conn.execute("INSERT INTO table1 VALUES (1, 'Alice')", [])
+        .unwrap();
+    conn.execute("INSERT INTO table2 VALUES (2, 'Bob')", [])
+        .unwrap();
+    conn.execute("INSERT INTO table3 VALUES (3, 'Charlie')", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Test query with three table name parameters
+    let json_definitions = serde_json::json!({
+        "multi_table_test": {
+            "query": "SELECT DISTINCT t1.id AS id1, t1.name AS name1, t2.id AS id2, t2.name AS name2, t3.id AS id3, t3.name AS name3 FROM #table1 t1, #table2 t2, #table3 t3 WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3",
+            "returns": ["id1", "name1", "id2", "name2", "id3", "name3"],
+            "args": {
+                "table1": { "type": "table_name" },
+                "table2": { "type": "table_name" },
+                "table3": { "type": "table_name" }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let params = serde_json::json!({"table1": "table1", "table2": "table2", "table3": "table3"});
+    let result = db_conn
+        .query_run(&queries, "multi_table_test", &params)
+        .unwrap();
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        result[0],
+        serde_json::json!({"id1": 1, "name1": "Alice", "id2": 2, "name2": "Bob", "id3": 3, "name3": "Charlie"})
+    );
 }

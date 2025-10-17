@@ -1,10 +1,11 @@
 {
 	"my_list": {
-		"query": "select * from source where id=@id and name=@name",
-		"returns": ["id", "name"], 
+		"query": "select * from #source where id=@id and name=@name",
+		"returns": ["id", "name"],
 		"args": {
 			"id": { "type": "integer" },
-			"name": { "type": "string" }
+			"name": { "type": "string" },
+			"source": { "type": "table_name" }
 		}
 	},
 	"my_action": {

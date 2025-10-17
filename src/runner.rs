@@ -3,7 +3,22 @@ use crate::{
     result::{JankenError, Result},
     str_utils,
 };
+use regex::Regex;
 use rusqlite::Connection;
+
+/// Regex for table name parameters (#table_name syntax)
+static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
+    once_cell::sync::Lazy::new(|| Regex::new(r"#(\w+)").unwrap());
+
+/// Validate table name format (alphanumeric and underscores only)
+fn is_valid_table_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Quote an identifier properly for SQL (for table names)
+fn quote_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace("\"", "\"\""))
+}
 
 /// Trait for executing parameterized SQL queries against different database backends
 pub trait QueryRunner {
@@ -52,7 +67,9 @@ pub fn execute_query_unified(
     if !query.returns.is_empty() {
         // Query with returns specified - return structured data
         let (prepared_sql, _) =
-            prepare_single_statement(&query.sql, &query.parameters, &|idx| format!("?{idx}"))?;
+            prepare_single_statement(&query.sql, &query.parameters, request_params_obj, &|idx| {
+                format!("?{idx}")
+            })?;
         let mut stmt = tx.prepare(&prepared_sql)?;
         let request_param_values = convert_params_to_sqlite(request_params_obj, &query.parameters)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(&request_param_values), |row| {
@@ -121,7 +138,9 @@ fn execute_mutation_query(
         // Single-statement mutation - prepare and execute normally with all parameters
         let request_param_values = convert_params_to_sqlite(request_params_obj, &query.parameters)?;
         let (prepared_sql, _) =
-            prepare_single_statement(&query.sql, &query.parameters, &|idx| format!("?{idx}"))?;
+            prepare_single_statement(&query.sql, &query.parameters, request_params_obj, &|idx| {
+                format!("?{idx}")
+            })?;
         let mut stmt = tx.prepare(&prepared_sql)?;
         stmt.execute(rusqlite::params_from_iter(&request_param_values))
             .map_err(JankenError::Sqlite)?;
@@ -190,6 +209,24 @@ fn convert_params_to_sqlite(
                 let int_val = if bool_val { 1 } else { 0 };
                 request_param_values.push(Box::new(int_val));
             }
+            ParameterType::TableName => {
+                let table_name =
+                    value
+                        .as_str()
+                        .ok_or_else(|| JankenError::ParameterTypeMismatch {
+                            expected: "string (table_name)".to_string(),
+                            got: value.to_string(),
+                        })?;
+                // Validate table name format
+                if !is_valid_table_name(table_name) {
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: "valid table name (alphanumeric and underscores only)"
+                            .to_string(),
+                        got: table_name.to_string(),
+                    });
+                }
+                request_param_values.push(Box::new(table_name.to_string()));
+            }
         }
     }
     Ok(request_param_values)
@@ -200,23 +237,22 @@ fn convert_params_to_sqlite(
 fn prepare_single_statement(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
+    request_params_obj: &serde_json::Map<String, serde_json::Value>,
     placeholder_gen: &dyn Fn(usize) -> String,
 ) -> Result<(String, Vec<usize>)> {
     let statement_param_names = str_utils::extract_parameters_in_statement(statement_sql);
-    let mut placeholder_sql = statement_sql.to_string();
+    let mut prepared_sql = statement_sql.to_string();
     let mut param_positions = Vec::new();
     let mut next_placeholder_idx = 1;
 
-    // Replace parameters in order and track their positions in the global parameter list
+    // Replace @parameters first
     for param_name in statement_param_names {
-        // Find this parameter in the global parameter list
         if let Some(global_index) = all_parameters
             .iter()
             .position(|global_param| global_param.name == param_name)
         {
             param_positions.push(global_index);
-            // Replace @param_name with placeholder format (e.g., ?1, $1, ?)
-            placeholder_sql = placeholder_sql.replace(
+            prepared_sql = prepared_sql.replace(
                 &format!("@{param_name}"),
                 &placeholder_gen(next_placeholder_idx),
             );
@@ -224,7 +260,32 @@ fn prepare_single_statement(
         }
     }
 
-    Ok((placeholder_sql, param_positions))
+    // Replace #table_name parameters with direct table name values from request_params_obj
+    for cap in TABLE_NAME_REGEX.captures_iter(&prepared_sql.clone()) {
+        if let Some(param_name_match) = cap.get(1) {
+            let param_name = param_name_match.as_str();
+
+            // Get the table name value from request parameters
+            if let Some(table_name_value) = request_params_obj.get(param_name) {
+                if let Some(table_name_str) = table_name_value.as_str() {
+                    // Validate as identifier
+                    let valid_ident = quote_identifier(table_name_str);
+                    prepared_sql = TABLE_NAME_REGEX
+                        .replace(&prepared_sql, valid_ident)
+                        .to_string();
+                } else {
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: "string (table_name)".to_string(),
+                        got: table_name_value.to_string(),
+                    });
+                }
+            } else {
+                return Err(JankenError::ParameterNotProvided(param_name.to_string()));
+            }
+        }
+    }
+
+    Ok((prepared_sql, param_positions))
 }
 
 /// Execute a single SQL statement with its appropriate parameters
@@ -236,7 +297,9 @@ fn execute_single_statement(
 ) -> Result<()> {
     let request_param_values = convert_params_to_sqlite(request_params_obj, all_parameters)?;
     let (placeholder_sql, param_positions) =
-        prepare_single_statement(statement_sql, all_parameters, &|idx| format!("?{idx}"))?;
+        prepare_single_statement(statement_sql, all_parameters, request_params_obj, &|idx| {
+            format!("?{idx}")
+        })?;
 
     // Collect the parameter values for this statement in the correct order
     let statement_params: Vec<&Box<dyn rusqlite::ToSql>> = param_positions

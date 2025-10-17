@@ -16,6 +16,7 @@ pub enum ParameterType {
     String,
     Float,
     Boolean,
+    TableName,
 }
 
 impl FromStr for ParameterType {
@@ -27,6 +28,7 @@ impl FromStr for ParameterType {
             "string" => Ok(ParameterType::String),
             "float" => Ok(ParameterType::Float),
             "boolean" => Ok(ParameterType::Boolean),
+            "table_name" => Ok(ParameterType::TableName),
             _ => Err(format!("Unknown parameter type: {s}")),
         }
     }
@@ -39,6 +41,7 @@ impl std::fmt::Display for ParameterType {
             ParameterType::String => "string",
             ParameterType::Float => "float",
             ParameterType::Boolean => "boolean",
+            ParameterType::TableName => "table_name",
         };
         write!(f, "{s}")
     }
