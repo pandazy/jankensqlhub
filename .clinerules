@@ -14,7 +14,7 @@ After running `cargo test` to verify functionality, always execute:
 - `cargo fmt` to ensure code formatting consistency
 
 ## Testing Principles
-- You shall not use conditional assertions, if they are wrapped in a callback function, make sure the wrapper happens 100%, avoid any assertions that will not actually be run
+- Do not use conditional assertions; if they are wrapped in a callback function, ensure the wrapper executes 100% of the time; avoid any assertions that will not actually execute
 - Ensure tests are simple and straightforward to read
 - Aim for broader coverage with fewer, well-designed tests
 - Prioritize testing for security issues, particularly SQL injection vulnerabilities
@@ -29,6 +29,7 @@ After running `cargo test` to verify functionality, always execute:
 - Add documentation comments for public APIs
 - Keep functions small and focused on single responsibilities
 - Use pattern matching for error handling and control flow
+- If a variable has no possibility of being None or an empty value within its flow, do not define it as an Option
 
 ## Module Architecture
 

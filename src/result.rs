@@ -15,6 +15,8 @@ pub enum JankenError {
     ParameterNotProvided(String),
     #[error("Parameter type mismatch: expected {expected}, got {got}")]
     ParameterTypeMismatch { expected: String, got: String },
+    #[error("Parameter name conflict: {0} is used as both parameter and table name")]
+    ParameterNameConflict(String),
     #[error("Regex error: {0}")]
     Regex(#[from] regex::Error),
 }

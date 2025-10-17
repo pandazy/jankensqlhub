@@ -1,4 +1,4 @@
-use jankensqlhub::{DatabaseConnection, QueryDefinitions, QueryRunner};
+use jankensqlhub::{DatabaseConnection, QueryDefinitions, QueryRunner, parameters};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -249,7 +249,7 @@ fn test_str_utils_functionality() {
     assert!(statements[2].starts_with("SELECT"));
 
     let stmt = r#"SELECT col FROM t WHERE name='literal\'quote' AND @param='value'"#;
-    let params = str_utils::extract_parameters_in_statement(stmt);
+    let params = parameters::extract_parameters_in_statement(stmt);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], "param");
 }
@@ -396,12 +396,7 @@ fn test_multi_table_name_parameters() {
     let json_definitions = serde_json::json!({
         "multi_table_test": {
             "query": "SELECT DISTINCT t1.id AS id1, t1.name AS name1, t2.id AS id2, t2.name AS name2, t3.id AS id3, t3.name AS name3 FROM #table1 t1, #table2 t2, #table3 t3 WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3",
-            "returns": ["id1", "name1", "id2", "name2", "id3", "name3"],
-            "args": {
-                "table1": { "type": "table_name" },
-                "table2": { "type": "table_name" },
-                "table3": { "type": "table_name" }
-            }
+            "returns": ["id1", "name1", "id2", "name2", "id3", "name3"]
         }
     });
 
@@ -417,4 +412,62 @@ fn test_multi_table_name_parameters() {
         result[0],
         serde_json::json!({"id1": 1, "name1": "Alice", "id2": 2, "name2": "Bob", "id3": 3, "name3": "Charlie"})
     );
+}
+
+#[test]
+fn test_multi_statement_table_name_parameters() {
+    let conn = Connection::open_in_memory().unwrap();
+
+    // Create tables for multi-statement test
+    conn.execute(
+        "CREATE TABLE source_table (id INTEGER PRIMARY KEY, name TEXT)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE dest_table (id INTEGER PRIMARY KEY, name TEXT)",
+        [],
+    )
+    .unwrap();
+
+    conn.execute("INSERT INTO source_table VALUES (1, 'Alice')", [])
+        .unwrap();
+    conn.execute("INSERT INTO source_table VALUES (2, 'Bob')", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Test multi-statement query with table name parameters
+    let json_definitions = serde_json::json!({
+        "multi_statement_table_transfer": {
+            "query": "INSERT INTO #dest_table SELECT * FROM #source_table WHERE id <= @limit; UPDATE #dest_table SET name = UPPER(name);",
+            "args": {
+                "limit": { "type": "integer" }
+            }
+        },
+        "select_dest_table": {
+            "query": "SELECT * FROM #dest_table ORDER BY id",
+            "returns": ["id", "name"]
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Run multi-statement transfer
+    let params =
+        serde_json::json!({"source_table": "source_table", "dest_table": "dest_table", "limit": 2});
+    let transfer_result = db_conn
+        .query_run(&queries, "multi_statement_table_transfer", &params)
+        .unwrap();
+    assert!(transfer_result.is_empty());
+
+    // Verify the data was transferred and modified
+    let params = serde_json::json!({"dest_table": "dest_table"});
+    let result = db_conn
+        .query_run(&queries, "select_dest_table", &params)
+        .unwrap();
+
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], serde_json::json!({"id": 1, "name": "ALICE"}));
+    assert_eq!(result[1], serde_json::json!({"id": 2, "name": "BOB"}));
 }

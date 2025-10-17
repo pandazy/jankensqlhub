@@ -49,6 +49,50 @@ fn test_query_not_found() {
 }
 
 #[test]
+fn test_transaction_keywords_error_from_sql() {
+    // Test that transaction keywords in SQL cause QueryDef::from_sql to return an error
+    let bad_sql = "SELECT * FROM table; COMMIT;";
+    let result = jankensqlhub::query::QueryDef::from_sql(bad_sql, None);
+    assert!(result.is_err());
+
+    if let Err(jankensqlhub::result::JankenError::ParameterTypeMismatch { .. }) = result {
+        // Error is the expected type, good
+    } else {
+        panic!("Unexpected error type");
+    }
+}
+
+#[test]
+fn test_invalid_json_input_from_json() {
+    // Test QueryDefinitions::from_json with non-object input (covers line 115-117)
+    let bad_json = serde_json::json!(["array_instead_of_object"]);
+    let result = jankensqlhub::query::QueryDefinitions::from_json(bad_json);
+    assert!(result.is_err());
+
+    if let Err(jankensqlhub::result::JankenError::ParameterTypeMismatch { .. }) = result {
+        // Error is the expected type, good
+    } else {
+        panic!("Unexpected error type");
+    }
+}
+
+#[test]
+fn test_invalid_query_definition_structure_from_json() {
+    // Test QueryDefinitions::from_json with invalid query definition structure (covers line 118-120)
+    let bad_definition = serde_json::json!({
+        "bad_query_def": "string_instead_of_object"
+    });
+    let result = jankensqlhub::query::QueryDefinitions::from_json(bad_definition);
+    assert!(result.is_err());
+
+    if let Err(jankensqlhub::result::JankenError::ParameterTypeMismatch { .. }) = result {
+        // Error is the expected type, good
+    } else {
+        panic!("Unexpected error type");
+    }
+}
+
+#[test]
 fn test_parameter_type_mismatch() {
     // Create query with args specifying integer type for id
     let json_definitions = serde_json::json!({
@@ -157,13 +201,32 @@ fn test_parameter_validation_range_non_numeric() {
 #[test]
 fn test_parameter_validation_enum() {
     let json_definitions = serde_json::json!({
-        "select_with_enum": {
+        "select_with_enum_string": {
             "query": "select * from source where name=@status",
             "returns": ["id", "name", "score"],
             "args": {
                 "status": {
                     "type": "string",
                     "enum": ["active", "inactive", "pending"]
+                }
+            }
+        },
+        "select_with_enum_int": {
+            "query": "select * from source where id=@level",
+            "returns": ["id", "name", "score"],
+            "args": {
+                "level": {
+                    "type": "integer",
+                    "enum": [1, 2, 3, 4, 5]
+                }
+            }
+        },
+        "select_with_enum_table": {
+            "query": "SELECT * FROM #table_name",
+            "returns": ["id", "name", "score"],
+            "args": {
+                "table_name": {
+                    "enum": ["users", "products", "orders"]
                 }
             }
         }
@@ -173,16 +236,19 @@ fn test_parameter_validation_enum() {
     let conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'active', NULL)", [])
         .unwrap();
+    conn.execute("INSERT INTO source VALUES (3, 'test', NULL)", [])
+        .unwrap();
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
+    // Test string enum - should work
     let params = serde_json::json!({"status": "active"});
-    let result = db_conn.query_run(&queries, "select_with_enum", &params);
+    let result = db_conn.query_run(&queries, "select_with_enum_string", &params);
     assert!(result.is_ok());
 
     let params = serde_json::json!({"status": "unknown"});
     let err = db_conn
-        .query_run(&queries, "select_with_enum", &params)
+        .query_run(&queries, "select_with_enum_string", &params)
         .unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
@@ -190,6 +256,59 @@ fn test_parameter_validation_enum() {
             assert!(expected.contains("inactive"));
             assert!(expected.contains("pending"));
             assert_eq!(got, "\"unknown\"");
+        }
+        _ => panic!("Wrong error type: {err:?}"),
+    }
+
+    // Test integer enum - should work
+    let params = serde_json::json!({"level": 3});
+    let result = db_conn.query_run(&queries, "select_with_enum_int", &params);
+    assert!(result.is_ok());
+
+    let params = serde_json::json!({"level": 10}); // Not in enum [1,2,3,4,5]
+    let err = db_conn
+        .query_run(&queries, "select_with_enum_int", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert!(expected.contains("1"));
+            assert!(expected.contains("2"));
+            assert!(expected.contains("3"));
+            assert!(expected.contains("4"));
+            assert!(expected.contains("5"));
+            assert_eq!(got, "10");
+        }
+        _ => panic!("Wrong error type: {err:?}"),
+    }
+
+    // Test table_name enum - should validate enum values but also pass normal table_name validation
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, score REAL)",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO users VALUES (1, 'John', 95.0)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Should work with enum value that's a valid table name
+    let params = serde_json::json!({"table_name": "users"});
+    let result = db_conn.query_run(&queries, "select_with_enum_table", &params);
+    assert!(result.is_ok());
+
+    // Should fail with enum value that's not in the allowed list
+    let params = serde_json::json!({"table_name": "admin"}); // "admin" is not in enum ["users", "products", "orders"]
+    let err = db_conn
+        .query_run(&queries, "select_with_enum_table", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert!(expected.contains("users"));
+            assert!(expected.contains("products"));
+            assert!(expected.contains("orders"));
+            assert_eq!(got, "\"admin\"");
         }
         _ => panic!("Wrong error type: {err:?}"),
     }
@@ -408,6 +527,86 @@ fn test_parameter_validation_pattern_non_string() {
 }
 
 #[test]
+fn test_parameter_validation_pattern_table_name() {
+    // Test that pattern validation works for table_name parameters
+    let json_definitions = serde_json::json!({
+        "table_pattern_query": {
+            "query": "SELECT * FROM #table_name",
+            "returns": ["id", "name", "score"],
+            "args": {
+                "table_name": {
+                    "pattern": "^test_\\w+$"  // Must start with "test_" followed by word characters
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE test_users (id INTEGER PRIMARY KEY, name TEXT, score REAL)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE test_products (id INTEGER PRIMARY KEY, name TEXT, score REAL)",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO test_users VALUES (1, 'user1', 85.0)", [])
+        .unwrap();
+    conn.execute("INSERT INTO test_products VALUES (2, 'product1', 95.5)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Test valid table names that match the pattern
+    let valid_params = vec![
+        serde_json::json!({"table_name": "test_users"}),
+        serde_json::json!({"table_name": "test_products"}),
+    ];
+
+    for params in valid_params {
+        let result = db_conn.query_run(&queries, "table_pattern_query", &params);
+        assert!(result.is_ok(), "Expected success for valid pattern match");
+    }
+
+    // Test invalid table names that don't match the pattern
+    let invalid_cases = vec![
+        (serde_json::json!({"table_name": "users"}), "users"), // Doesn't start with "test_"
+        (
+            serde_json::json!({"table_name": "test-table"}),
+            "test-table",
+        ), // Contains dash (not word char)
+        (
+            serde_json::json!({"table_name": "test users"}),
+            "test users",
+        ), // Contains space (not word char)
+        (
+            serde_json::json!({"table_name": "prefix_test"}),
+            "prefix_test",
+        ), // Wrong prefix
+    ];
+
+    for (params, expected_got) in invalid_cases {
+        let err = db_conn
+            .query_run(&queries, "table_pattern_query", &params)
+            .unwrap_err();
+        match err {
+            JankenError::ParameterTypeMismatch { expected, got } => {
+                assert!(
+                    expected.contains("string matching pattern"),
+                    "Expected pattern validation error"
+                );
+                assert_eq!(got, expected_got);
+            }
+            _ => panic!("Expected ParameterTypeMismatch for invalid pattern, got: {err:?}"),
+        }
+    }
+}
+
+#[test]
 fn test_table_name_parameter_security_and_validation() {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute(
@@ -614,7 +813,9 @@ fn test_no_args_provided_for_parameter_in_sql() {
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "args object with parameter definitions");
-            assert!(got.contains("parameter 'param' found in SQL but no args object provided"));
+            assert!(
+                got.contains("non-table-name parameters found in SQL but no args object provided")
+            );
         }
         _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
     }
@@ -741,6 +942,108 @@ fn test_from_json_query_definition_not_object() {
     }
 }
 
+/// Test parameter name conflict error when same name used for param and table_name
+#[test]
+fn test_parameter_name_conflict_error() {
+    use jankensqlhub::parameters::parse_parameters_with_quotes;
+
+    // Test SQL with same name used as both parameter and table name
+    let sql = "SELECT * FROM #conflict WHERE id=@conflict";
+    let result = parse_parameters_with_quotes(sql);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterNameConflict(name) => {
+            assert_eq!(name, "conflict");
+        }
+        _ => panic!("Expected ParameterNameConflict, got: {err:?}"),
+    }
+}
+
+#[test]
+fn test_table_name_validation_error() {
+    // Test that invalid table names trigger ParameterTypeMismatch error
+    let json_definitions = serde_json::json!({
+        "table_query": {
+            "query": "SELECT * FROM #table_name",
+            "returns": ["id"]
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Test invalid table names should fail with validation error
+    let invalid_names = vec![
+        "",
+        "table-with-dashes",
+        "table@special",
+        "table with spaces",
+    ];
+
+    for table_name in invalid_names {
+        let conn = Connection::open_in_memory().unwrap();
+        let mut db_conn = DatabaseConnection::SQLite(conn);
+
+        let params = serde_json::json!({"table_name": table_name});
+        let err = db_conn
+            .query_run(&queries, "table_query", &params)
+            .unwrap_err();
+        match err {
+            JankenError::ParameterTypeMismatch { expected, got } => {
+                assert_eq!(
+                    expected,
+                    "valid table name (alphanumeric and underscores only)"
+                );
+                assert_eq!(got, table_name);
+            }
+            _ => panic!(
+                "Expected ParameterTypeMismatch for invalid table name '{table_name}', got: {err:?}"
+            ),
+        }
+    }
+
+    // Test valid table name should work
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE valid_name (id INTEGER)", [])
+        .unwrap();
+    conn.execute("INSERT INTO valid_name VALUES (42)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let params = serde_json::json!({"table_name": "valid_name"});
+    let result = db_conn.query_run(&queries, "table_query", &params);
+    assert!(result.is_ok(), "Valid table name should work");
+    let data = result.unwrap();
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0], serde_json::json!({"id": 42}));
+}
+
+#[test]
+fn test_invalid_parameter_type_error() {
+    // Test that invalid parameter types trigger ParameterTypeMismatch error
+    let json_definitions = serde_json::json!({
+        "invalid_type_query": {
+            "query": "select * from source where id=@id",
+            "args": {
+                "id": { "type": "invalid_type" }  // Invalid type - not integer, string, float, or boolean
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "integer, string, float, or boolean");
+            assert_eq!(got, "invalid_type");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for invalid parameter type, got: {err:?}"),
+    }
+}
+
 #[test]
 fn test_sqlite_type_mismatch_errors() {
     // Test parameter type mismatch errors for all types and non-object request_params
@@ -762,6 +1065,10 @@ fn test_sqlite_type_mismatch_errors() {
         "bool_test": {
             "query": "select * from source where active=@active",
             "args": { "active": { "type": "boolean" } }
+        },
+        "table_test": {
+            "query": "SELECT * FROM #table_name",
+            "returns": ["id", "name", "score"]
         }
     });
 
@@ -832,5 +1139,28 @@ fn test_sqlite_type_mismatch_errors() {
         _ => {
             panic!("Expected ParameterTypeMismatch for boolean validation with array, got: {err:?}")
         }
+    }
+
+    // Test table_name parameter type error that triggers the uncovered Err(_) branch in row processing
+    let mut conn = Connection::open_in_memory().unwrap();
+    // Create a table with some data
+    conn.execute(
+        "CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT, score REAL)",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO source VALUES (1, 'test', 1.0)", [])
+        .unwrap();
+
+    let request_params = serde_json::json!({"table_name": 123}); // Pass number instead of string for table name
+    let result = query_run_sqlite(&mut conn, &queries, "table_test", &request_params);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "string (table_name)");
+            assert_eq!(got, "123");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for table_name parameter, got: {err:?}"),
     }
 }

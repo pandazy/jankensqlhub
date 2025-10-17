@@ -1,10 +1,3 @@
-/// Utility functions for string processing, particularly SQL statement handling
-use regex::Regex;
-
-// Regex compiled once as a lazy static for performance
-static PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"@(\w+)").unwrap());
-
 /// Check if a position in SQL is inside quotes (handles both single and double quotes)
 pub fn is_in_quotes(sql: &str, pos: usize) -> bool {
     let mut in_single_quote = false;
@@ -81,23 +74,4 @@ pub fn split_sql_statements(sql: &str) -> Vec<String> {
     }
 
     statements
-}
-
-/// Extract parameter names from a single statement
-pub fn extract_parameters_in_statement(statement: &str) -> Vec<String> {
-    let mut params = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-
-    for cap in PARAMETER_REGEX.captures_iter(statement) {
-        if let Some(named_match) = cap.get(0) {
-            if !is_in_quotes(statement, named_match.start()) {
-                let name = cap.get(1).unwrap().as_str().to_string();
-                if seen.insert(name.clone()) {
-                    params.push(name);
-                }
-            }
-        }
-    }
-
-    params
 }

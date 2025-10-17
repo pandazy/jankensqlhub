@@ -5,7 +5,7 @@
 		"args": {
 			"id": { "type": "integer" },
 			"name": { "type": "string" },
-			"source": { "type": "table_name" }
+			"source": { "enum": ["source"] }
 		}
 	},
 	"my_action": {
