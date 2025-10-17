@@ -286,19 +286,24 @@ fn test_multi_statement_no_params() {
 fn test_sqlite_row_error_handling() {
     let conn = setup_db();
     conn.execute(
-        "CREATE TABLE test_wide (a INTEGER, b INTEGER, c INTEGER, d INTEGER)",
+        "CREATE TABLE test_wide (a INTEGER, b REAL, c TEXT, d BLOB, e INTEGER)",
         [],
     )
     .unwrap();
-    conn.execute("INSERT INTO test_wide VALUES (1, 2, 3, 4)", [])
-        .unwrap();
+
+    // Insert test data with various types including NULL
+    conn.execute(
+        "INSERT INTO test_wide VALUES (1, 3.145, 'hello', X'DEADBEEF', NULL)",
+        [],
+    )
+    .unwrap();
 
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let json_definitions = serde_json::json!({
-        "select_wide": {
-            "query": "SELECT a, b FROM test_wide",
-            "returns": ["a", "b", "c", "d", "nonexistent_field"],
+        "select_wide_with_types": {
+            "query": "SELECT a, b, c, d, e FROM test_wide",
+            "returns": ["a", "b", "c", "d", "e", "missing_field"],
             "args": {}
         }
     });
@@ -306,15 +311,20 @@ fn test_sqlite_row_error_handling() {
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
     let params = serde_json::json!({});
-    let result = db_conn.query_run(&queries, "select_wide", &params).unwrap();
+    let result = db_conn
+        .query_run(&queries, "select_wide_with_types", &params)
+        .unwrap();
 
     assert_eq!(result.len(), 1);
     let obj = &result[0];
-    assert_eq!(obj.get("a"), Some(&serde_json::json!(1)));
-    assert_eq!(obj.get("b"), Some(&serde_json::json!(2)));
-    assert_eq!(obj.get("c"), Some(&serde_json::json!(null)));
-    assert_eq!(obj.get("d"), Some(&serde_json::json!(null)));
-    assert_eq!(obj.get("nonexistent_field"), Some(&serde_json::json!(null)));
+
+    assert_eq!(obj.get("a"), Some(&serde_json::json!(1))); // Integer
+    assert_eq!(obj.get("b"), Some(&serde_json::json!(3.145))); // Real/Float
+    assert_eq!(obj.get("c"), Some(&serde_json::json!("hello"))); // Text
+    // BLOB data - stored as array of byte values
+    assert!(obj.get("d").is_some()); // BLOB gets converted to byte array
+    assert_eq!(obj.get("e"), Some(&serde_json::json!(null))); // NULL
+    assert_eq!(obj.get("missing_field"), Some(&serde_json::json!(null))); // Missing field
 }
 
 #[test]
