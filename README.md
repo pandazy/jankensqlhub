@@ -53,8 +53,8 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
 
 Each query definition contains:
 - `"query"`: Required - The SQL statement with `@parameter` (`#table_name`) placeholders
-- `"args"`: Required when `@parameter` or `#table_name` placeholders are used in the query
-  - Parameter definitions with types and constraints. Table name parameters (`#table`) support enum constraints only.
+- `"args"`: Required when `@parameter` are used in the query
+  - Parameter definitions with types and constraints. Table name parameters (`#table`) support enum and pattern constraints only.
 - `"returns"`: Optional - Array of column names for SELECT queries (determines JSON response structure)
 ```json
 {
