@@ -41,7 +41,7 @@ After running `cargo test` to verify functionality, always execute:
 ├── parameters.rs       # Parameter parsing, type validation, prepared statement creation
 ├── query.rs           # Query definition creation and collection management
 ├── result.rs          # Error types and result aliases
-├── runner.rs          # Query execution logic and transaction management
+├── runner.rs          # Query execution logic with table name parameter support
 └── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
 ```
 
@@ -50,9 +50,9 @@ After running `cargo test` to verify functionality, always execute:
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
 | **`connection.rs`** | Database connections & query execution | `DatabaseConnection`, `QueryRunner::query_run()` |
-| **`parameters.rs`** | SQL parameter handling | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
-| **`query.rs`** | Query definition management | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()` |
-| **`runner.rs`** | Execution mechanics | `query_run_sqlite()`, `execute_query_unified()` |
+| **`parameters.rs`** | SQL parameter handling including table names | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
+| **`query.rs`** | Query definition creation with table name support | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()` |
+| **`runner.rs`** | Execution mechanics with dynamic table replacement | `query_run_sqlite()`, `execute_query_unified()`,`prepare_single_statement()` |
 | **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
 | **`result.rs`** | Error handling | `JankenError` enum |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
