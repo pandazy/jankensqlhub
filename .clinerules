@@ -14,7 +14,7 @@ After running `cargo test` to verify functionality, always execute:
 - `cargo fmt` to ensure code formatting consistency
 
 ## Testing Principles
-- You shall not use conditional assertions, if they are wrapped in a callback function, make sure the wrapper happens 100%, avoid any assertions that will not actually be run
+- Do not use conditional assertions; if they are wrapped in a callback function, ensure the wrapper executes 100% of the time; avoid any assertions that will not actually execute
 - Ensure tests are simple and straightforward to read
 - Aim for broader coverage with fewer, well-designed tests
 - Prioritize testing for security issues, particularly SQL injection vulnerabilities
@@ -29,6 +29,7 @@ After running `cargo test` to verify functionality, always execute:
 - Add documentation comments for public APIs
 - Keep functions small and focused on single responsibilities
 - Use pattern matching for error handling and control flow
+- If a variable has no possibility of being None or an empty value within its flow, do not define it as an Option
 
 ## Module Architecture
 
@@ -40,7 +41,7 @@ After running `cargo test` to verify functionality, always execute:
 ├── parameters.rs       # Parameter parsing, type validation, prepared statement creation
 ├── query.rs           # Query definition creation and collection management
 ├── result.rs          # Error types and result aliases
-├── runner.rs          # Query execution logic and transaction management
+├── runner.rs          # Query execution logic with table name parameter support
 └── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
 ```
 
@@ -49,9 +50,9 @@ After running `cargo test` to verify functionality, always execute:
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
 | **`connection.rs`** | Database connections & query execution | `DatabaseConnection`, `QueryRunner::query_run()` |
-| **`parameters.rs`** | SQL parameter handling | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
-| **`query.rs`** | Query definition management | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()` |
-| **`runner.rs`** | Execution mechanics | `query_run_sqlite()`, `execute_query_unified()` |
+| **`parameters.rs`** | SQL parameter handling including table names | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
+| **`query.rs`** | Query definition creation with table name support | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()` |
+| **`runner.rs`** | Execution mechanics with dynamic table replacement | `query_run_sqlite()`, `execute_query_unified()`,`prepare_single_statement()` |
 | **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
 | **`result.rs`** | Error handling | `JankenError` enum |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
