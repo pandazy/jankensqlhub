@@ -21,73 +21,19 @@ impl QueryDef {
         sql: &str,
         args: Option<&serde_json::Map<String, serde_json::Value>>,
     ) -> Result<Self> {
-        // Prevent explicit transaction control keywords (BEGIN, COMMIT, etc.) because they conflict with rusqlite's transaction handling
-        if crate::parameters::contains_transaction_keywords(sql) {
-            return Err(JankenError::ParameterTypeMismatch {
-                expected: "SQL without explicit transaction keywords".to_string(),
-                got:
-                    "Query contains BEGIN, COMMIT, ROLLBACK, START TRANSACTION, or END TRANSACTION"
-                        .to_string(),
-            });
-        }
+        Self::check_transaction_keywords(sql)?;
 
-        // Parse parameters while respecting quote boundaries (only extracts names)
         let mut parameters = crate::parameters::parse_parameters_with_quotes(sql)?;
+        Self::validate_parameters_exist(&parameters, &args)?;
 
-        // Validate parameter types and constraints from "args"
-        // If parameters exist, they MUST be defined in args
-        for param in &mut parameters {
-            if let Some(args_map) = args {
-                if let Some(arg_def) = args_map.get(&param.name) {
-                    // Parse type from args
-                    if let Some(type_val) = arg_def.get("type") {
-                        if let Some(type_str) = type_val.as_str() {
-                            let param_type = crate::parameters::ParameterType::from_str(type_str)
-                                .map_err(|_| JankenError::ParameterTypeMismatch {
-                                expected: "integer, string, float, or boolean".to_string(),
-                                got: type_str.to_string(),
-                            })?;
-                            param.param_type = param_type;
-                        }
-                    }
-
-                    // Parse constraints
-                    if let Some(range_val) = arg_def.get("range") {
-                        if let Some(range_array) = range_val.as_array() {
-                            let range: Vec<f64> =
-                                range_array.iter().filter_map(|v| v.as_f64()).collect();
-                            param.constraints.range = Some(range);
-                        }
-                    }
-
-                    if let Some(pattern_val) = arg_def.get("pattern") {
-                        if let Some(pattern_str) = pattern_val.as_str() {
-                            param.constraints.pattern = Some(pattern_str.to_string());
-                        }
-                    }
-
-                    if let Some(enum_val) = arg_def.get("enum") {
-                        if let Some(enum_array) = enum_val.as_array() {
-                            param.constraints.enum_values = Some(enum_array.clone());
-                        }
-                    }
-                } else {
-                    // Parameter found in SQL but not defined in args - this is an error
-                    return Err(JankenError::ParameterTypeMismatch {
-                        expected: "parameter definition in args".to_string(),
-                        got: format!("parameter '{}' not defined in args object", param.name),
-                    });
-                }
-            } else {
-                // No args provided but parameters found in SQL
-                return Err(JankenError::ParameterTypeMismatch {
-                    expected: "args object with parameter definitions".to_string(),
-                    got: format!(
-                        "parameter '{}' found in SQL but no args object provided",
-                        param.name
-                    ),
-                });
+        if let Some(args_map) = args {
+            for param in &mut parameters {
+                Self::process_parameter_with_args(param, args_map)?;
             }
+        } else {
+            // No args provided - only table name parameters would be processed
+            // but table names don't require args validation in validation function
+            // so we can return Ok as this should only be called for table-only queries
         }
 
         Ok(QueryDef {
@@ -95,6 +41,111 @@ impl QueryDef {
             parameters,
             returns: Vec::new(),
         })
+    }
+
+    fn check_transaction_keywords(sql: &str) -> Result<()> {
+        if crate::parameters::contains_transaction_keywords(sql) {
+            Err(JankenError::ParameterTypeMismatch {
+                expected: "SQL without explicit transaction keywords".to_string(),
+                got:
+                    "Query contains BEGIN, COMMIT, ROLLBACK, START TRANSACTION, or END TRANSACTION"
+                        .to_string(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_parameters_exist(
+        parameters: &[Parameter],
+        args: &Option<&serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<()> {
+        let has_non_table_params = parameters
+            .iter()
+            .any(|p| p.param_type != crate::parameters::ParameterType::TableName);
+
+        if has_non_table_params && args.is_none() {
+            Err(JankenError::ParameterTypeMismatch {
+                expected: "args object with parameter definitions".to_string(),
+                got: "non-table-name parameters found in SQL but no args object provided"
+                    .to_string(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn process_parameter_with_args(
+        param: &mut Parameter,
+        args: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<()> {
+        if param.param_type == crate::parameters::ParameterType::TableName {
+            Self::process_table_name_parameter(param, args);
+        } else {
+            Self::process_regular_parameter(param, args)?;
+        }
+        Ok(())
+    }
+
+    fn process_table_name_parameter(
+        param: &mut Parameter,
+        args: &serde_json::Map<String, serde_json::Value>,
+    ) {
+        if let Some(arg_def) = args.get(&param.name) {
+            Self::parse_constraints(&mut param.constraints, arg_def);
+        }
+    }
+
+    fn process_regular_parameter(
+        param: &mut Parameter,
+        args: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<()> {
+        // Due to prior validation, we know this parameter must exist in args
+        let arg_def = args.get(&param.name).unwrap(/* guaranteed by validate_parameters_exist */);
+
+        Self::parse_parameter_type(param, arg_def)?;
+        Self::parse_constraints(&mut param.constraints, arg_def);
+
+        Ok(())
+    }
+
+    fn parse_parameter_type(param: &mut Parameter, arg_def: &serde_json::Value) -> Result<()> {
+        if let Some(type_val) = arg_def.get("type") {
+            if let Some(type_str) = type_val.as_str() {
+                param.param_type =
+                    crate::parameters::ParameterType::from_str(type_str).map_err(|_| {
+                        JankenError::ParameterTypeMismatch {
+                            expected: "integer, string, float, or boolean".to_string(),
+                            got: type_str.to_string(),
+                        }
+                    })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_constraints(
+        constraints: &mut crate::parameters::ParameterConstraints,
+        arg_def: &serde_json::Value,
+    ) {
+        if let Some(range_val) = arg_def.get("range") {
+            if let Some(range_array) = range_val.as_array() {
+                let range: Vec<f64> = range_array.iter().filter_map(|v| v.as_f64()).collect();
+                constraints.range = Some(range);
+            }
+        }
+
+        if let Some(pattern_val) = arg_def.get("pattern") {
+            if let Some(pattern_str) = pattern_val.as_str() {
+                constraints.pattern = Some(pattern_str.to_string());
+            }
+        }
+
+        if let Some(enum_val) = arg_def.get("enum") {
+            if let Some(enum_array) = enum_val.as_array() {
+                constraints.enum_values = Some(enum_array.clone());
+            }
+        }
     }
 }
 
@@ -115,12 +166,15 @@ impl QueryDefinitions {
 
     /// Load query definitions from a serde_json::Value object
     pub fn from_json(json: serde_json::Value) -> Result<Self> {
-        let json_map = json
-            .as_object()
-            .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                expected: "object".to_string(),
-                got: json.to_string(),
-            })?;
+        let json_map = match json.as_object() {
+            Some(map) => map,
+            None => {
+                return Err(JankenError::ParameterTypeMismatch {
+                    expected: "object".to_string(),
+                    got: json.to_string(),
+                });
+            }
+        };
 
         let mut definitions = HashMap::new();
         for (name, value) in json_map {

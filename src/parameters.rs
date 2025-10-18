@@ -8,6 +8,8 @@ use std::str::FromStr;
 // Regex compiled once as a lazy static for performance
 static PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r"@(\w+)").unwrap());
+static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
+    once_cell::sync::Lazy::new(|| Regex::new(r"#(\w+)").unwrap());
 
 /// Parameter type enums for database operations
 #[derive(Debug, Clone, PartialEq)]
@@ -16,6 +18,7 @@ pub enum ParameterType {
     String,
     Float,
     Boolean,
+    TableName,
 }
 
 impl FromStr for ParameterType {
@@ -27,6 +30,7 @@ impl FromStr for ParameterType {
             "string" => Ok(ParameterType::String),
             "float" => Ok(ParameterType::Float),
             "boolean" => Ok(ParameterType::Boolean),
+            "table_name" => Ok(ParameterType::TableName),
             _ => Err(format!("Unknown parameter type: {s}")),
         }
     }
@@ -39,6 +43,7 @@ impl std::fmt::Display for ParameterType {
             ParameterType::String => "string",
             ParameterType::Float => "float",
             ParameterType::Boolean => "boolean",
+            ParameterType::TableName => "table_name",
         };
         write!(f, "{s}")
     }
@@ -121,6 +126,27 @@ impl ParameterConstraints {
             }
         }
 
+        if param_type == &ParameterType::TableName {
+            if let Some(table_name_str) = value.as_str() {
+                if table_name_str.is_empty()
+                    || !table_name_str
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_')
+                {
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: "valid table name (alphanumeric and underscores only)"
+                            .to_string(),
+                        got: table_name_str.to_string(),
+                    });
+                }
+            } else {
+                return Err(JankenError::ParameterTypeMismatch {
+                    expected: "string (table_name)".to_string(),
+                    got: value.to_string(),
+                });
+            }
+        }
+
         Ok(())
     }
 }
@@ -134,44 +160,67 @@ pub struct Parameter {
 }
 
 /// Parse parameters from SQL while respecting quote boundaries
-/// Note: This now only extracts unique parameter names. Types and constraints are defined in the "args" JSON object.
+/// Extracts both normal parameters (@param) and table name parameters (#table) from the SQL.
+/// Returns combined results. If a name is used for both parameter types, an error is returned.
+/// For @params: type defaults to String but can be overridden by "args" JSON
+/// For #table names: type is always TableName (auto-detected), only constraints from "args" JSON are applied
 pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
-    let mut param_names = std::collections::HashSet::new();
+    let param_names = extract_parameters_with_regex(sql, &PARAMETER_REGEX);
+    let table_names = extract_parameters_with_regex(sql, &TABLE_NAME_REGEX);
+
+    // Check for conflicts between parameter names and table names
+    for table_name in &table_names {
+        if param_names.contains(table_name) {
+            return Err(JankenError::ParameterNameConflict(table_name.clone()));
+        }
+    }
+
     let mut parameters = Vec::new();
 
-    // Process all captures while respecting quotes
-    for cap in PARAMETER_REGEX.captures_iter(sql) {
-        // Check if this parameter is inside quotes
-        if let Some(named_match) = cap.get(0) {
-            if is_in_quotes(sql, named_match.start()) {
-                // Skip parameters inside quotes - they're literal text
-                continue;
-            }
-        }
-
-        // Parse the parameter name only
-        let name = cap
-            .get(1)
-            .expect("Parameter regex should always have capture group 1")
-            .as_str()
-            .to_string();
-
-        // Skip duplicates - each parameter should only be added once
-        if param_names.contains(&name) {
-            continue;
-        }
-
-        param_names.insert(name.clone());
-
-        // Create parameter with default type - will be overridden by "args" JSON if present
+    // Add normal parameters (@param)
+    for name in &param_names {
         parameters.push(Parameter {
-            name,
-            param_type: ParameterType::String, // Default type
+            name: name.clone(),
+            param_type: ParameterType::String, // Default type - will be overridden by "args" JSON if present
+            constraints: ParameterConstraints::default(),
+        });
+    }
+
+    // Add table name parameters (#table)
+    for name in &table_names {
+        parameters.push(Parameter {
+            name: name.clone(),
+            param_type: ParameterType::TableName,
             constraints: ParameterConstraints::default(),
         });
     }
 
     Ok(parameters)
+}
+
+/// Extract parameter names from a single statement
+pub fn extract_parameters_in_statement(statement: &str) -> Vec<String> {
+    extract_parameters_with_regex(statement, &PARAMETER_REGEX)
+}
+
+/// Helper function to extract unique parameter names with regex, respecting quotes
+/// Returns in order of first appearance in the SQL
+fn extract_parameters_with_regex(statement: &str, regex: &Regex) -> Vec<String> {
+    let mut params = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for cap in regex.captures_iter(statement) {
+        if let Some(named_match) = cap.get(0) {
+            if !is_in_quotes(statement, named_match.start()) {
+                let name = cap.get(1).unwrap().as_str().to_string();
+                if seen.insert(name.clone()) {
+                    params.push(name);
+                }
+            }
+        }
+    }
+
+    params
 }
 
 /// Check if SQL contains transaction control keywords that conflict with rusqlite
@@ -182,4 +231,22 @@ pub fn contains_transaction_keywords(sql: &str) -> bool {
         || upper_sql.contains("ROLLBACK")
         || upper_sql.contains("START TRANSACTION")
         || upper_sql.contains("END TRANSACTION")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parameter_type_display_table_name() {
+        // Test that ParameterType::TableName displays correctly
+        // Since TableName is auto-detected and not set directly by users,
+        // we need a simple test to cover this display path
+        let param = Parameter {
+            name: "test_table".to_string(),
+            param_type: ParameterType::TableName,
+            constraints: ParameterConstraints::default(),
+        };
+        assert_eq!(param.param_type.to_string(), "table_name");
+    }
 }

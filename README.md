@@ -8,11 +8,12 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 
 ### Core Capabilities
 - ✅ **Parameterizable SQL Templates** - `@param_name` syntax in queries, types defined separately
+- ✅ **Dynamic Table Names** - `#table_name` syntax for parameterizable table names
 - ✅ **Multi-Database Support** - SQLite (?1,?2), PostgreSQL planned for future releases
 - ✅ **SQL Injection Protection** - Automatic prepared statement generation
 - ✅ **Quote-Aware Parsing** - Parameters inside quotes are treated as literals
-- ✅ **Type Safety & Validation** - Parameter type validation with constraints (range, pattern, enum)
-- ✅ **Parameter Constraints** - Range limits, regex patterns, and enumerated values supported
+- ✅ **Type Safety & Validation** - Parameter type validation with constraints (range, pattern, enum, table name validation)
+- ✅ **Parameter Constraints** - Range limits, regex patterns, enumerated values, and table name validation
 
 ## 🚀 Quick Start
 
@@ -24,6 +25,9 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 ```sql
 -- Basic parameter syntax - no types in SQL, only parameter names
 SELECT * FROM users WHERE id=@user_id AND name=@user_name
+
+-- Dynamic table name parameters
+SELECT * FROM #table_name WHERE id=@user_id
 
 -- Parameters in quoted strings (treated as literals)
 SELECT * FROM users WHERE name='@literal_text'
@@ -48,9 +52,9 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
 ### 1. Define Queries (JSON Configuration)
 
 Each query definition contains:
-- `"query"`: Required - The SQL statement with `@parameter` placeholders
-- `"args"`: Required when `@parameter` placeholders are used in the query
-  - Parameter definitions with types and constraints. If any `@param_name` is used in the SQL, the `args` object must define all parameters with their types.
+- `"query"`: Required - The SQL statement with `@parameter` (`#table_name`) placeholders
+- `"args"`: Required when `@parameter` or `#table_name` placeholders are used in the query
+  - Parameter definitions with types and constraints. Table name parameters (`#table`) support enum constraints only.
 - `"returns"`: Optional - Array of column names for SELECT queries (determines JSON response structure)
 ```json
 {
@@ -95,6 +99,22 @@ Each query definition contains:
         "pattern": "\\S+@\\S+\\.\\S+"
       }
     }
+  },
+  "query_from_table": {
+    "query": "SELECT * FROM #source WHERE id=@id AND name=@name",
+    "returns": ["id", "name"],
+    "args": {
+      "id": {"type": "integer"},
+      "name": {"type": "string"},
+      "source": {"enum": ["source"]}
+    }
+  },
+  "insert_into_dynamic_table": {
+    "query": "INSERT INTO #dest_table (name) VALUES (@name)",
+    "args": {
+      "dest_table": {"enum": ["accounts", "users"]},
+      "name": {"type": "string"}
+    }
   }
 }
 ```
@@ -125,9 +145,13 @@ let result = conn.query_run(&queries, "get_user", &params)?;
 let params = serde_json::json!({"name": "Alice", "email": "alice@example.com"});
 let result = conn.query_run(&queries, "create_user", &params)?;
 
-// Search users by age range
-let params = serde_json::json!({"min_age": 18, "max_age": 65});
-let result = conn.query_run(&queries, "search_users", &params)?;
+// Query from dynamic table
+let params = serde_json::json!({"source": "accounts", "id": 1, "name": "John"});
+let result = conn.query_run(&queries, "query_from_table", &params)?;
+
+// Insert into dynamic table
+let params = serde_json::json!({"dest_table": "users", "name": "Bob"});
+let result = conn.query_run(&queries, "insert_into_dynamic_table", &params)?;
 ```
 
 ### 4. Parameter Types and Constraints Supported
@@ -138,13 +162,14 @@ let result = conn.query_run(&queries, "search_users", &params)?;
 // Constraint types
 "range": [min, max]     // For numeric types (integer/float)
 "pattern": "regex"      // For string types (e.g., email validation)
-"enum": [value1, ...]   // For any type (allowed values)
+"enum": [value1, ...]   // For any type (allowed values). Table names support enum only.
 
 // Examples in args object
 "id": {"type": "integer"}                                                 // Basic integer
 "balance": {"type": "float", "range": [0.0, 1000000.0]}                   // Float with range
 "status": {"type": "string", "enum": ["active", "inactive", "pending"]}  // String enum
 "email": {"type": "string", "pattern": "\\S+@\\S+\\.\\S+"}              // String with regex
+"source": {"enum": ["users", "accounts"]}                               // Table name enum
 ```
 
 ## ⚡ Performance Characteristics

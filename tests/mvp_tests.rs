@@ -61,11 +61,12 @@ fn test_sqlite_update_with_params() {
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
     // Update
+    // Note: my_action doesn't use table name parameters, so it doesn't need "source"
     let params = serde_json::json!({"new_id": 10, "new_name": "NewJohn", "old_id": 1});
     db_conn.query_run(&queries, "my_action", &params).unwrap();
 
     // Verify by select specific with new id - returns structured data now
-    let params = serde_json::json!({"id": 10, "name": "NewJohn"});
+    let params = serde_json::json!({"id": 10, "name": "NewJohn", "source": "source"});
     let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
     assert_eq!(
         result,
