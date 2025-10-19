@@ -29,6 +29,9 @@ SELECT * FROM users WHERE id=@user_id AND name=@user_name
 -- Dynamic table name parameters - always table_name type with optional constraints
 SELECT * FROM #table_name WHERE id=@user_id
 
+-- List parameters for IN clauses - always list type with item type validation
+SELECT * FROM users WHERE id IN :[user_ids] AND status IN :[statuses]
+
 -- Parameters in quoted strings (treated as literals)
 SELECT * FROM users WHERE name='@literal_text'
 ```
@@ -115,6 +118,13 @@ Each query definition contains:
       "dest_table": {"enum": ["accounts", "users"]},
       "name": {"type": "string"}
     }
+  },
+  "get_users_by_ids": {
+    "query": "SELECT id, name FROM users WHERE id IN :[user_ids]",
+    "returns": ["id", "name"],
+    "args": {
+      "user_ids": {"itemtype": "integer"}
+    }
   }
 }
 ```
@@ -140,7 +150,7 @@ let mut conn = DatabaseConnection::SQLite(conn);
 // Get user by ID (returns QueryResult with JSON data and SQL execution details)
 let params = serde_json::json!({"user_id": 42});
 let query_result = conn.query_run(&queries, "get_user", &params)?;
-// Access JSON results: query_result.result
+// Access JSON results: query_result.data
 // Access executed SQL statements: query_result.sql_statements (for debugging)
 
 // Create new user
@@ -157,21 +167,31 @@ let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params
 ```
 
 ### 4. Parameter Types and Constraints Supported
+
+**Automatic Type Assignment:**
+- `@param` parameters: Default to "string" type (can be overridden)
+- `#table_name` parameters: Automatically assigned "table_name" type
+- `:[list_param]` parameters: Automatically assigned "list" type
+
 ```rust
 // Parameter types (all case-insensitive)
-"integer", "string", "float", "boolean"
+"integer", "string", "float", "boolean", "table_name", "list"
 
 // Constraint types
 "range": [min, max]     // For numeric types (integer/float)
 "pattern": "regex"      // For string types (e.g., email validation)
 "enum": [value1, ...]   // For any type (allowed values). Table names support enum only.
+"itemtype": "type"      // For list types: specifies the type of each item in the list
 
 // Examples in args object
-"id": {"type": "integer"}                                                 // Basic integer
+"id": {"type": "integer"}                                                 // Basic integer (overridden from default string)
 "balance": {"type": "float", "range": [0.0, 1000000.0]}                   // Float with range
 "status": {"type": "string", "enum": ["active", "inactive", "pending"]}  // String enum
 "email": {"type": "string", "pattern": "\\S+@\\S+\\.\\S+"}              // String with regex
-"source": {"enum": ["users", "accounts"]}                               // Table name enum (table type cannot be overridden)
+"user_ids": {"itemtype": "integer"}                                     // List of integers for IN clauses
+"names": {"type": "string"}                                              // Explicit string type (same as default)
+"source": {"enum": ["users", "accounts"]}                               // Table name enum (table_name type auto-assigned)
+"targets": {}                                                          // List parameter (no constraints needed)
 ```
 
 ## ⚡ Performance Characteristics

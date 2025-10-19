@@ -7,6 +7,19 @@
 - `QueryResult` contains both JSON results and executed SQL statements for debugging
 - **Breaking**: Access JSON data via `.data` field, SQL statements via `.sql_statements`
 
+## ✨ **New Features**
+
+### List Parameters Support
+- New parameter syntax `:[list_name]` for IN clauses and array operations
+- Example: `SELECT * FROM users WHERE id IN :[user_ids]`
+- Automatic type assignment to "list" with optional item type validation
+- Use `{"itemtype": "integer"}` in args to specify list item types
+
+### Default Parameter Types
+- `@parameter` placeholders now default to "string" type when no args specified
+- No longer requires explicit type specification for string parameters
+- Reduces configuration verbosity for common string parameters
+
 ## Before (v0.3.x)
 ```rust
 let result: Vec<serde_json::Value> = conn.query_run(&queries, "my_query", &params)?;
@@ -39,4 +52,4 @@ for sql in &query_result.sql_statements {
 - All parameter validation and SQL injection protection features preserved
 
 ---
-**Version 0.4.0** - Enhanced query result structure with SQL statement debugging support
+**Version 0.4.0** - Enhanced query result structure with SQL statement debugging, list parameters, and default type assignment

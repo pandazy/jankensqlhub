@@ -51,11 +51,11 @@ After running `cargo test` to verify functionality, always execute:
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
 | **`connection.rs`** | Database connections & query execution | `DatabaseConnection`, `QueryRunner::query_run()` |
-| **`parameters.rs`** | SQL parameter handling including table names | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
-| **`query.rs`** | Query definition creation with parameter defaults and table name support | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
-| **`runner.rs`** | Execution mechanics with dynamic table replacement | `query_run_sqlite()`, `execute_query_unified()`,`prepare_single_statement()` |
+| **`parameters.rs`** | SQL parameter handling including table names and list parameters | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
+| **`query.rs`** | Query definition creation with parameter defaults, table names, and list parameters | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
+| **`runner.rs`** | Execution mechanics with dynamic table and list parameter support | `query_run_sqlite()`, `execute_query_unified()`,`prepare_single_statement()` |
 | **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
-| **`result.rs`** | Query result structures and error types | `QueryResult`, `JankenError` enum |
+| **`result.rs`** | Query result structures with debug output and error types | `QueryResult`, `JankenError` enum |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
