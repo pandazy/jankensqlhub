@@ -3,12 +3,7 @@ use crate::{
     result::{JankenError, QueryResult, Result},
     str_utils,
 };
-use regex::Regex;
 use rusqlite::Connection;
-
-/// Regex for table name parameters (#table_name syntax)
-static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"#(\w+)").unwrap());
 
 /// Type alias for parameter preparation result to reduce type complexity
 type PreparedParametersResult = (String, Vec<(String, Box<dyn rusqlite::ToSql>)>);
@@ -21,6 +16,35 @@ type PreparedParametersResult = (String, Vec<(String, Box<dyn rusqlite::ToSql>)>
 /// Quote an identifier properly for SQL (for table names)
 fn quote_identifier(name: &str) -> String {
     format!("\"{}\"", name.replace("\"", "\"\""))
+}
+
+/// Convert a serde_json Value to a rusqlite ToSql type for list items
+fn json_value_to_sql(value: &serde_json::Value) -> Box<dyn rusqlite::ToSql> {
+    match value {
+        serde_json::Value::String(s) => Box::new(s.clone()),
+        serde_json::Value::Number(n) if n.is_i64() => Box::new(n.as_i64().unwrap()),
+        serde_json::Value::Number(n) if n.is_f64() => Box::new(n.as_f64().unwrap()),
+        serde_json::Value::Bool(b) => Box::new(*b as i32),
+        _ => Box::new(value.to_string()), // Fallback for unsupported types
+    }
+}
+
+/// Convert a JSON value to rusqlite ToSql based on parameter type definition
+fn parameter_value_to_sql(
+    param_value: &serde_json::Value,
+    param_type: &ParameterType,
+) -> Box<dyn rusqlite::ToSql> {
+    match param_type {
+        ParameterType::String => Box::new(param_value.as_str().unwrap().to_string()),
+        ParameterType::Integer => Box::new(param_value.as_i64().unwrap()),
+        ParameterType::Float => Box::new(param_value.as_f64().unwrap()),
+        ParameterType::Boolean => Box::new(param_value.as_bool().unwrap() as i32),
+        ParameterType::TableName => Box::new(param_value.as_str().unwrap().to_string()),
+        ParameterType::List => {
+            // List parameters are handled separately in list expansion
+            Box::new(String::new()) // Placeholder
+        }
+    }
 }
 
 /// Trait for executing parameterized SQL queries against different database backends
@@ -193,14 +217,9 @@ fn prepare_statement_parameters(
             .find(|p| p.name == *param_name)
             .ok_or_else(|| JankenError::ParameterNotProvided(param_name.clone()))?;
 
-        // Convert JSON value to rusqlite::ToSql (validation already done upstream)
-        let to_sql: Box<dyn rusqlite::ToSql> = match &param_def.param_type {
-            ParameterType::String => Box::new(param_value.as_str().unwrap().to_string()),
-            ParameterType::Integer => Box::new(param_value.as_i64().unwrap()),
-            ParameterType::Float => Box::new(param_value.as_f64().unwrap()),
-            ParameterType::Boolean => Box::new(param_value.as_bool().unwrap() as i32),
-            ParameterType::TableName => Box::new(param_value.as_str().unwrap().to_string()),
-        };
+        // Convert JSON value to rusqlite::ToSql based on parameter type (validation already done upstream)
+        let to_sql: Box<dyn rusqlite::ToSql> =
+            parameter_value_to_sql(param_value, &param_def.param_type);
         named_params.push((format!(":{param_name}"), to_sql));
     }
 
@@ -226,11 +245,11 @@ fn prepare_single_statement(
             .validate(value, &param_def.param_type)?;
     }
 
-    let (mut prepared_sql, named_params) =
+    let (mut prepared_sql, mut named_params) =
         prepare_statement_parameters(statement_sql, all_parameters, request_params_obj)?;
 
     // Replace #table_name parameters with direct table name values from request_params_obj
-    for cap in TABLE_NAME_REGEX.captures_iter(&prepared_sql.clone()) {
+    for cap in parameters::TABLE_NAME_REGEX.captures_iter(&prepared_sql.clone()) {
         if let Some(param_name_match) = cap.get(1) {
             let param_name = param_name_match.as_str();
 
@@ -239,9 +258,47 @@ fn prepare_single_statement(
             let table_name_str = table_name_value.as_str().unwrap();
             // Validate as identifier
             let valid_ident = quote_identifier(table_name_str);
-            prepared_sql = TABLE_NAME_REGEX
+            prepared_sql = parameters::TABLE_NAME_REGEX
                 .replace(&prepared_sql, valid_ident)
                 .to_string();
+        }
+    }
+
+    // Replace :[list] parameters with expanded named parameters (:list_0, :list_1, etc.)
+    for cap in parameters::LIST_PARAMETER_REGEX.captures_iter(&prepared_sql.clone()) {
+        if let Some(_param_match) = cap.get(0) {
+            if let Some(param_name_match) = cap.get(1) {
+                let list_param_name = param_name_match.as_str();
+
+                // Get the list parameter value from request params
+                let list_value = request_params_obj.get(list_param_name).unwrap();
+                let list_array = list_value.as_array().unwrap();
+
+                if list_array.is_empty() {
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: "non-empty list".to_string(),
+                        got: "empty array".to_string(),
+                    });
+                }
+
+                // Create named placeholders and values
+                // Since ParameterConstraints::validate already validates the array type upstream,
+                // we can safely unwrap values here to avoid redundant type checking calculations
+                let mut placeholders = Vec::new();
+                for (i, item) in list_array.iter().enumerate() {
+                    let param_key = format!(":{list_param_name}_{i}");
+                    placeholders.push(param_key.clone());
+
+                    let to_sql: Box<dyn rusqlite::ToSql> = json_value_to_sql(item);
+                    named_params.push((param_key, to_sql));
+                }
+
+                // Replace the :[param] with (:param_0, :param_1, ...)
+                let placeholder_str = placeholders.join(", ");
+                prepared_sql = parameters::LIST_PARAMETER_REGEX
+                    .replace(&prepared_sql, format!("({placeholder_str})"))
+                    .to_string();
+            }
         }
     }
 
@@ -271,38 +328,41 @@ fn execute_single_statement(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Parameter;
-    use crate::parameters::ParameterConstraints;
 
     #[test]
-    fn test_prepare_statement_parameters_table_name_type() {
-        // Test that TableName parameters (though normally used with #table_name)
-        // This is an impossible case in current flow but forced to define it because of a `match` statement's constraint
-        // but we use unit test to make sure 100% coverage
-        // can still be processed as @params if defined that way
-        let sql = "SELECT * FROM table WHERE name = @table_param";
-        let all_parameters = vec![Parameter {
-            name: "table_param".to_string(),
-            param_type: ParameterType::TableName,
-            constraints: ParameterConstraints::default(),
-        }];
+    fn test_prepare_statement_parameters_edge_cases() {
+        // Test edge cases to cover parameter type conversion functions
+        // These represent "practically impossible" cases but needed for 100% test coverage
 
-        let mut request_params_obj = serde_json::Map::new();
-        request_params_obj.insert(
-            "table_param".to_string(),
-            serde_json::Value::String("test_table".to_string()),
+        // Test parameter_value_to_sql with actual SQL execution
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        // Test List type conversion (should return empty string placeholder)
+        let list_result = parameter_value_to_sql(
+            &serde_json::Value::Array(vec![serde_json::Value::String("test".to_string())]),
+            &ParameterType::List,
         );
-
-        let result = prepare_statement_parameters(sql, &all_parameters, &request_params_obj);
-
-        assert!(result.is_ok());
-        let (prepared_sql, named_params) = result.unwrap();
+        let list_count: i32 = conn
+            .query_row("SELECT ? = ''", [list_result.as_ref()], |row| row.get(0))
+            .unwrap();
         assert_eq!(
-            prepared_sql,
-            "SELECT * FROM table WHERE name = :table_param"
+            list_count, 1,
+            "List type should return empty string placeholder"
         );
-        assert_eq!(named_params.len(), 1);
-        assert_eq!(named_params[0].0, ":table_param");
-        // Since validation ensures it's a string, unwrap is safe and result should be correct
+
+        // Test TableName type conversion (should preserve the string)
+        let table_result = parameter_value_to_sql(
+            &serde_json::Value::String("my_table".to_string()),
+            &ParameterType::TableName,
+        );
+        let table_count: i32 = conn
+            .query_row("SELECT ? = 'my_table'", [table_result.as_ref()], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            table_count, 1,
+            "TableName type should preserve the string value"
+        );
     }
 }

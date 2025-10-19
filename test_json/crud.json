@@ -1,8 +1,18 @@
 {
   "read": {
     "query": "select * from #table where id in :[targets]",
-    "args": {
-      "targets": { "type" : "integer", "pattern": "\\w" }
-    }
+    "returns": ["id", "name", "score"]
+  },
+  "multi_list": {
+    "query": "select * from #table where id in :[ids] and score in :[scores]",
+    "returns": ["id", "name", "score"]
+  },
+  "string_list": {
+    "query": "select * from #table where name in :[names]",
+    "returns": ["id", "name", "score"]
+  },
+  "boolean_list": {
+    "query": "select * from #table where active in :[statuses]",
+    "returns": ["id", "name", "score", "active"]
   }
 }

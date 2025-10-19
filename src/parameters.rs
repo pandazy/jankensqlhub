@@ -10,6 +10,8 @@ pub static PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r"@(\w+)").unwrap());
 pub static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r"#(\w+)").unwrap());
+pub static LIST_PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
+    once_cell::sync::Lazy::new(|| Regex::new(r":\[(\w+)\]").unwrap());
 
 /// Parameter type enums for database operations
 #[derive(Debug, Clone, PartialEq)]
@@ -19,6 +21,7 @@ pub enum ParameterType {
     Float,
     Boolean,
     TableName,
+    List,
 }
 
 impl FromStr for ParameterType {
@@ -31,8 +34,9 @@ impl FromStr for ParameterType {
             "float" => Ok(ParameterType::Float),
             "boolean" => Ok(ParameterType::Boolean),
             "table_name" => Ok(ParameterType::TableName),
+            "list" => Ok(ParameterType::List),
             _ => Err(JankenError::ParameterTypeMismatch {
-                expected: "integer, string, float, boolean or table_name".to_string(),
+                expected: "integer, string, float, boolean, table_name or list".to_string(),
                 got: s.to_string(),
             }),
         }
@@ -47,6 +51,7 @@ impl std::fmt::Display for ParameterType {
             ParameterType::Float => "float",
             ParameterType::Boolean => "boolean",
             ParameterType::TableName => "table_name",
+            ParameterType::List => "list",
         };
         write!(f, "{s}")
     }
@@ -65,12 +70,12 @@ pub struct ParameterConstraints {
     pub range: Option<Vec<f64>>, // For numeric types: [min, max]
     pub pattern: Option<String>, // For string types: regex pattern
     pub enum_values: Option<Vec<serde_json::Value>>, // For any type: allowed values
+    pub item_type: Option<ParameterType>, // For list types: the type of each item
 }
 
 impl ParameterConstraints {
-    /// Validate a parameter value against these constraints
-    pub fn validate(&self, value: &serde_json::Value, param_type: &ParameterType) -> Result<()> {
-        // Basic type validation first
+    /// Validate basic type (without any constraints)
+    fn validate_basic_type(value: &serde_json::Value, param_type: &ParameterType) -> Result<()> {
         match param_type {
             ParameterType::String => {
                 if !value.is_string() {
@@ -97,8 +102,29 @@ impl ParameterConstraints {
                     return Err(constraint_mismatch_error(param_type, value));
                 }
             }
+            _ => {}
         }
+        Ok(())
+    }
 
+    /// Validate parameter constraints (range, pattern, enum) assuming basic type validation is already done
+    fn validate_constraints(
+        &self,
+        value: &serde_json::Value,
+        param_type: &ParameterType,
+    ) -> Result<()> {
+        // First validate basic type
+        Self::validate_basic_type(value, param_type)?;
+        // Then validate the constraint rules
+        self.validate_constraint_rules(value, param_type)
+    }
+
+    /// Validate constraint rules (range, pattern, enum) only, assuming basic type is already validated
+    fn validate_constraint_rules(
+        &self,
+        value: &serde_json::Value,
+        param_type: &ParameterType,
+    ) -> Result<()> {
         // Check that range is only specified for numeric types
         if self.range.is_some()
             && !matches!(param_type, ParameterType::Integer | ParameterType::Float)
@@ -161,6 +187,38 @@ impl ParameterConstraints {
             }
         }
 
+        Ok(())
+    }
+
+    /// Validate a parameter value against these constraints
+    pub fn validate(&self, value: &serde_json::Value, param_type: &ParameterType) -> Result<()> {
+        if param_type == &ParameterType::List {
+            if !value.is_array() {
+                return Err(constraint_mismatch_error(param_type, value));
+            }
+
+            // Validate each item in the list if item_type is specified
+            // Note: item_type validation is already done during constraint parsing at definition time
+            if let Some(item_type) = &self.item_type {
+                let array = value.as_array().unwrap(); // already verified at the beginning;
+                for (index, item) in array.iter().enumerate() {
+                    // Validate basic type and constraints for each item
+                    if Self::validate_basic_type(item, item_type).is_err() {
+                        return Err(JankenError::ParameterTypeMismatch {
+                            expected: format!("{item_type} at index {index}"),
+                            got: item.to_string(),
+                        });
+                    }
+                    self.validate_constraint_rules(item, item_type)?;
+                }
+            }
+            // For Lists, constraints (range, pattern, enum) apply to items if item_type is set,
+            // but not to the list itself, so we don't call validate_constraints after this match
+            return Ok(());
+        }
+
+        self.validate_constraints(value, param_type)?;
+
         if param_type == &ParameterType::TableName {
             // value cannot be a non-string here since basic type validation has been done
             let table_name_str = value.as_str().unwrap();
@@ -189,18 +247,25 @@ pub struct Parameter {
 }
 
 /// Parse parameters from SQL while respecting quote boundaries
-/// Extracts both normal parameters (@param) and table name parameters (#table) from the SQL.
-/// Returns combined results. If a name is used for both parameter types, an error is returned.
+/// Extracts normal parameters (@param), table name parameters (#table), and list parameters (:[list]) from the SQL.
+/// Returns combined results. If a name is used for multiple parameter types, an error is returned.
 /// For @params: type defaults to String but can be overridden by "args" JSON
 /// For #table names: type is always TableName (auto-detected), only constraints from "args" JSON are applied
+/// For :[list] parameters: type is always List (auto-detected), constraints from "args" JSON are applied
 pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
     let param_names = extract_parameters_with_regex(sql, &PARAMETER_REGEX);
     let table_names = extract_parameters_with_regex(sql, &TABLE_NAME_REGEX);
+    let list_names = extract_parameters_with_regex(sql, &LIST_PARAMETER_REGEX);
 
-    // Check for conflicts between parameter names and table names
+    // Check for conflicts between parameter names
     for table_name in &table_names {
-        if param_names.contains(table_name) {
+        if param_names.contains(table_name) || list_names.contains(table_name) {
             return Err(JankenError::ParameterNameConflict(table_name.clone()));
+        }
+    }
+    for list_name in &list_names {
+        if param_names.contains(list_name) {
+            return Err(JankenError::ParameterNameConflict(list_name.clone()));
         }
     }
 
@@ -220,6 +285,15 @@ pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
         parameters.push(Parameter {
             name: name.clone(),
             param_type: ParameterType::TableName,
+            constraints: ParameterConstraints::default(),
+        });
+    }
+
+    // Add list parameters (:[list])
+    for name in &list_names {
+        parameters.push(Parameter {
+            name: name.clone(),
+            param_type: ParameterType::List,
             constraints: ParameterConstraints::default(),
         });
     }

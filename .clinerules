@@ -10,7 +10,7 @@ JankenSQLHub is a Rust library for parameterizable SQL query management that pre
 To understand the repository's purpose, always check README.md first.
 
 After running `cargo test` to verify functionality, always execute:
-- `cargo clippy` to fix any compiler warnings
+- `cargo clippy --fix --allow-dirty` to fix any compiler warnings
 - `cargo fmt` to ensure code formatting consistency
 
 ## Testing Principles

@@ -1,4 +1,5 @@
 use crate::{
+    ParameterType,
     parameters::Parameter,
     result::{JankenError, Result},
 };
@@ -61,17 +62,17 @@ impl QueryDef {
             None => serde_json::Map::new(),
         };
 
-        // For each @param that doesn't have an arg definition, add default string type
+        // For each parameter that doesn't have an arg definition, add default string type
+        // Skip parameters that are not String type (i.e., TableName, List are auto-detected)
+        let skip_types = [ParameterType::TableName, ParameterType::List];
         for param in parameters {
-            if param.param_type != crate::parameters::ParameterType::TableName {
-                // Skip table name parameters as they only use constraints
-                if !augmented_args.contains_key(&param.name) {
-                    let default_arg = serde_json::json!({ "type": "string" });
-                    augmented_args.insert(param.name.clone(), default_arg);
-                }
+            if !skip_types.contains(&param.param_type) && !augmented_args.contains_key(&param.name)
+            {
+                // Only add default string type for String parameters without args
+                let default_arg = serde_json::json!({ "type": "string" });
+                augmented_args.insert(param.name.clone(), default_arg);
             }
         }
-
         augmented_args
     }
 
@@ -79,21 +80,24 @@ impl QueryDef {
         param: &mut Parameter,
         args: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
-        if param.param_type == crate::parameters::ParameterType::TableName {
-            Self::process_table_name_parameter(param, args);
+        if param.param_type == crate::parameters::ParameterType::TableName
+            || param.param_type == crate::parameters::ParameterType::List
+        {
+            Self::process_automatic_parameter(param, args)?;
         } else {
             Self::process_regular_parameter(param, args)?;
         }
         Ok(())
     }
 
-    fn process_table_name_parameter(
+    fn process_automatic_parameter(
         param: &mut Parameter,
         args: &serde_json::Map<String, serde_json::Value>,
-    ) {
+    ) -> Result<()> {
         if let Some(arg_def) = args.get(&param.name) {
-            Self::parse_constraints(&mut param.constraints, arg_def);
+            Self::parse_constraints(&mut param.constraints, arg_def)?;
         }
+        Ok(())
     }
 
     fn process_regular_parameter(
@@ -103,7 +107,7 @@ impl QueryDef {
         // Due to augmented args creation, we know this parameter must exist in args
         let arg_def = args.get(&param.name).unwrap();
         Self::parse_regular_parameter_type(param, arg_def)?;
-        Self::parse_constraints(&mut param.constraints, arg_def);
+        Self::parse_constraints(&mut param.constraints, arg_def)?;
 
         Ok(())
     }
@@ -114,7 +118,7 @@ impl QueryDef {
     ) -> Result<()> {
         if let Some(type_val) = arg_def.get("type") {
             if let Some(type_str) = type_val.as_str() {
-                let new_param_type = crate::parameters::ParameterType::from_str(type_str)?;
+                let new_param_type = ParameterType::from_str(type_str)?;
 
                 // Only assign if the type is different from the current parameter type
                 if new_param_type != param.param_type {
@@ -128,7 +132,7 @@ impl QueryDef {
     fn parse_constraints(
         constraints: &mut crate::parameters::ParameterConstraints,
         arg_def: &serde_json::Value,
-    ) {
+    ) -> Result<()> {
         if let Some(range_val) = arg_def.get("range") {
             if let Some(range_array) = range_val.as_array() {
                 let range: Vec<f64> = range_array.iter().filter_map(|v| v.as_f64()).collect();
@@ -147,6 +151,26 @@ impl QueryDef {
                 constraints.enum_values = Some(enum_array.clone());
             }
         }
+
+        if let Some(itemtype_val) = arg_def.get("itemtype") {
+            if let Some(itemtype_str) = itemtype_val.as_str() {
+                let item_type = ParameterType::from_str(itemtype_str)?;
+                // Validate item type - TableName and List are not allowed as item types
+                match item_type {
+                    ParameterType::TableName | ParameterType::List => {
+                        return Err(JankenError::ParameterTypeMismatch {
+                            expected: "item_type for list items cannot be TableName or List"
+                                .to_string(),
+                            got: item_type.to_string(),
+                        });
+                    }
+                    _ => {}
+                }
+                constraints.item_type = Some(item_type);
+            }
+        }
+
+        Ok(())
     }
 }
 
