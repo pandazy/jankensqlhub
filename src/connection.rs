@@ -1,6 +1,6 @@
 use crate::{
     QueryDefinitions,
-    result::Result,
+    result::{QueryResult, Result},
     runner::{QueryRunner, query_run_sqlite},
 };
 use rusqlite::Connection;
@@ -17,7 +17,7 @@ impl QueryRunner for DatabaseConnection {
         queries: &QueryDefinitions,
         query_name: &str,
         params: &serde_json::Value,
-    ) -> Result<Vec<serde_json::Value>> {
+    ) -> Result<QueryResult> {
         match self {
             DatabaseConnection::SQLite(conn) => query_run_sqlite(conn, queries, query_name, params),
         }

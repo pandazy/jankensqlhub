@@ -23,3 +23,10 @@ pub enum JankenError {
 
 /// Type alias for Results using JankenError
 pub type Result<T> = std::result::Result<T, JankenError>;
+
+/// Result of executing a query, containing both the executed SQL statements and the result data
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryResult {
+    pub sql_statements: Vec<String>,
+    pub data: Vec<serde_json::Value>,
+}
