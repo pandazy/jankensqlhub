@@ -4,7 +4,6 @@
 		"returns": ["id", "name"],
 		"args": {
 			"id": { "type": "integer" },
-			"name": { "type": "string" },
 			"source": { "enum": ["source"] }
 		}
 	},
@@ -17,10 +16,7 @@
 		}
 	},
 	"insert_single": {
-		"query": "insert into source (name) values (@name)",
-		"args": {
-			"name": { "type": "string" }
-		}
+		"query": "insert into source (name) values (@name)"
 	},
 	"delete_item": {
 		"query": "delete from source where id=@id",

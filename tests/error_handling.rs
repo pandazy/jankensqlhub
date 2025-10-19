@@ -205,10 +205,7 @@ fn test_parameter_validation_enum() {
             "query": "select * from source where name=@status",
             "returns": ["id", "name", "score"],
             "args": {
-                "status": {
-                    "type": "string",
-                    "enum": ["active", "inactive", "pending"]
-                }
+                "status": { "enum": ["active", "inactive", "pending"] }
             }
         },
         "select_with_enum_int": {
@@ -802,23 +799,23 @@ fn test_parameter_parsing_with_valid_parameters() {
 
 #[test]
 fn test_no_args_provided_for_parameter_in_sql() {
-    // Test that parameters in SQL require an args object to be provided
+    // Test that parameters in SQL work with no args - they get default string type
     use jankensqlhub::QueryDef;
 
     let sql = "SELECT * FROM source WHERE id=@param";
     let result = QueryDef::from_sql(sql, None);
 
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "args object with parameter definitions");
-            assert!(
-                got.contains("non-table-name parameters found in SQL but no args object provided")
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
-    }
+    assert!(result.is_ok());
+    let query_def = result.unwrap();
+
+    // Verify the parameter was created with default string type and no constraints
+    assert_eq!(query_def.parameters.len(), 1);
+    let param = &query_def.parameters[0];
+    assert_eq!(param.name, "param");
+    assert_eq!(param.param_type.to_string(), "string");
+    assert!(param.constraints.range.is_none());
+    assert!(param.constraints.pattern.is_none());
+    assert!(param.constraints.enum_values.is_none());
 }
 
 #[test]
@@ -1037,7 +1034,7 @@ fn test_invalid_parameter_type_error() {
     let err = result.unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "integer, string, float, or boolean");
+            assert_eq!(expected, "integer, string, float, boolean or table_name");
             assert_eq!(got, "invalid_type");
         }
         _ => panic!("Expected ParameterTypeMismatch for invalid parameter type, got: {err:?}"),

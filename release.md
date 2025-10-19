@@ -1,36 +1,54 @@
-# Release Notes v0.3.0
+# Release Notes v0.4.0
 
 ## Major Feature Addition
-- **table name parameter support** - Allow dynamic table names using `#table_name` syntax in SQL queries
-- Table names can be parameterized with enum constraints for security and validation
-- Enhanced flexibility for multi-tenant applications and dynamic schema operations
-
-## Architecture Refactoring
-- **Simplified inner structure** - Streamlined code organization for better maintainability
-- Improved module separation and reduced complexity
-- Enhanced parameter validation and processing pipeline
-- Better error handling and constraint validation
+- **Optional parameter arguments** - `@param` can now be used without explicit `args` specification in query definitions
+- Unspecified `@param` automatically defaults to string type with no constraints for cleaner APIs
+- Simplifies query definitions by reducing boilerplate for string parameters
+- Maintains full backward compatibility - existing `args` specifications continue to work unchanged
 
 ## Examples
-```rust
-// Query with dynamic table name
-let params = serde_json::json!({"source": "users", "id": 42});
-let result = conn.query_run(&queries, "query_from_table", &params)?;
 
-// Configuration with table name constraints
-"query_from_table": {
-  "query": "SELECT * FROM #source WHERE id=@id",
-  "args": {
-    "source": {"enum": ["users", "accounts"]},
-    "id": {"type": "integer"}
+### Traditional Syntax (still supported)
+```json
+{
+  "find_user": {
+    "query": "SELECT * FROM users WHERE name=@username",
+    "args": {
+      "username": {"type": "string"}
+    }
+  }
+}
+```
+
+### New Simplified Syntax
+```json
+{
+  "find_user": {
+    "query": "SELECT * FROM users WHERE name=@username"
+    // No args needed - @username defaults to string type
+  }
+}
+```
+
+### Mixed Usage
+```json
+{
+  "complex_query": {
+    "query": "SELECT * FROM #table WHERE id=@id AND status=@status",
+    "args": {
+      "id": {"type": "integer"},
+      "table": {"enum": ["users", "orders"]}
+      // @status not specified, defaults to string type
+    }
   }
 }
 ```
 
 ## Migration Notes
-- Existing `@param` syntax continues to work unchanged
-- No breaking changes to existing query definitions
-- Table name parameters (`#table`) are validated using enum constraints only
+- Existing query definitions require no changes - fully backward compatible
+- New query definitions can be simplified by omitting `args` for string parameters
+- Table name parameters (`#table`) still require `args` for constraint validation
+- No performance impact on queries with explicit args
 
 ---
-**Version 0.3.0** - Enhanced parameter system with dynamic table name support
+**Version 0.4.0** - Streamlined parameter syntax with automatic string defaults

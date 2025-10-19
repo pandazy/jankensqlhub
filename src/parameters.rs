@@ -22,7 +22,7 @@ pub enum ParameterType {
 }
 
 impl FromStr for ParameterType {
-    type Err = String;
+    type Err = JankenError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
@@ -31,7 +31,10 @@ impl FromStr for ParameterType {
             "float" => Ok(ParameterType::Float),
             "boolean" => Ok(ParameterType::Boolean),
             "table_name" => Ok(ParameterType::TableName),
-            _ => Err(format!("Unknown parameter type: {s}")),
+            _ => Err(JankenError::ParameterTypeMismatch {
+                expected: "integer, string, float, boolean or table_name".to_string(),
+                got: s.to_string(),
+            }),
         }
     }
 }

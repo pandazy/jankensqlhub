@@ -23,10 +23,10 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 
 ### Parameter Syntax
 ```sql
--- Basic parameter syntax - no types in SQL, only parameter names
+-- Basic parameter syntax - @params default to string type if no args specified
 SELECT * FROM users WHERE id=@user_id AND name=@user_name
 
--- Dynamic table name parameters
+-- Dynamic table name parameters - always table_name type with optional constraints
 SELECT * FROM #table_name WHERE id=@user_id
 
 -- Parameters in quoted strings (treated as literals)
@@ -53,9 +53,9 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
 
 Each query definition contains:
 - `"query"`: Required - The SQL statement with `@parameter` (`#table_name`) placeholders
-- `"args"`: Required when `@parameter` are used in the query
-  - Parameter definitions with types and constraints. Table name parameters (`#table`) support enum and pattern constraints only.
+- `"args"`: Optional - only needed to override default types or add constraints
 - `"returns"`: Optional - Array of column names for SELECT queries (determines JSON response structure)
+
 ```json
 {
   "get_user": {
@@ -169,7 +169,7 @@ let result = conn.query_run(&queries, "insert_into_dynamic_table", &params)?;
 "balance": {"type": "float", "range": [0.0, 1000000.0]}                   // Float with range
 "status": {"type": "string", "enum": ["active", "inactive", "pending"]}  // String enum
 "email": {"type": "string", "pattern": "\\S+@\\S+\\.\\S+"}              // String with regex
-"source": {"enum": ["users", "accounts"]}                               // Table name enum
+"source": {"enum": ["users", "accounts"]}                               // Table name enum (table type cannot be overridden)
 ```
 
 ## ⚡ Performance Characteristics
