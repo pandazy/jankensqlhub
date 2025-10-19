@@ -22,10 +22,17 @@ fn quote_identifier(name: &str) -> String {
 fn json_value_to_sql(value: &serde_json::Value) -> Box<dyn rusqlite::ToSql> {
     match value {
         serde_json::Value::String(s) => Box::new(s.clone()),
-        serde_json::Value::Number(n) if n.is_i64() => Box::new(n.as_i64().unwrap()),
-        serde_json::Value::Number(n) if n.is_f64() => Box::new(n.as_f64().unwrap()),
+        serde_json::Value::Number(n) => {
+            if n.is_i64() {
+                Box::new(n.as_i64().unwrap())
+            } else {
+                Box::new(n.as_f64().unwrap())
+            }
+        }
         serde_json::Value::Bool(b) => Box::new(*b as i32),
-        _ => Box::new(value.to_string()), // Fallback for unsupported types
+        serde_json::Value::Null => Box::new(rusqlite::types::Value::Null),
+        serde_json::Value::Array(a) => Box::new(format!("{a:?}")),
+        serde_json::Value::Object(o) => Box::new(format!("{o:?}")),
     }
 }
 
@@ -328,6 +335,78 @@ fn execute_single_statement(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_json_value_to_sql() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        // Test String
+        let string_result = json_value_to_sql(&serde_json::Value::String("hello".to_string()));
+        let val: String = conn
+            .query_row("SELECT ?", [string_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, "hello");
+
+        // Test Integer (i64)
+        let int_result =
+            json_value_to_sql(&serde_json::Value::Number(serde_json::Number::from(42)));
+        let val: i64 = conn
+            .query_row("SELECT ?", [int_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, 42);
+
+        // Test Float (f64)
+        let float_result = json_value_to_sql(&serde_json::Value::Number(
+            serde_json::Number::from_f64(1.23).unwrap(),
+        ));
+        let val: f64 = conn
+            .query_row("SELECT ?", [float_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert!(val > 1.22 && val < 1.24);
+
+        // Test Boolean (true -> 1)
+        let bool_result = json_value_to_sql(&serde_json::Value::Bool(true));
+        let val: i32 = conn
+            .query_row("SELECT ?", [bool_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, 1);
+
+        // Test Boolean (false -> 0)
+        let bool_result = json_value_to_sql(&serde_json::Value::Bool(false));
+        let val: i32 = conn
+            .query_row("SELECT ?", [bool_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, 0);
+
+        // Test Null
+        let null_result = json_value_to_sql(&serde_json::Value::Null);
+        let is_null: i32 = conn
+            .query_row("SELECT ? IS NULL", [null_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(is_null, 1);
+
+        // Test Array (string representation)
+        let array_result = json_value_to_sql(&serde_json::Value::Array(vec![
+            serde_json::Value::Number(1.into()),
+            serde_json::Value::String("test".to_string()),
+        ]));
+        let val: String = conn
+            .query_row("SELECT ?", [array_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, "[Number(1), String(\"test\")]");
+
+        // Test Object (string representation)
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "key".to_string(),
+            serde_json::Value::String("value".to_string()),
+        );
+        let obj_result = json_value_to_sql(&serde_json::Value::Object(obj));
+        let val: String = conn
+            .query_row("SELECT ?", [obj_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, "{\"key\": String(\"value\")}");
+    }
 
     #[test]
     fn test_prepare_statement_parameters_edge_cases() {
