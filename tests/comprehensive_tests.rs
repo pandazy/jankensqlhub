@@ -1,10 +1,10 @@
-use jankensqlhub::{DatabaseConnection, QueryDefinitions, QueryRunner, parameters};
+use jankensqlhub::{DatabaseConnection, JankenError, QueryDefinitions, QueryRunner, parameters};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute(
-        "CREATE TABLE source (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, score REAL)",
+        "CREATE TABLE source (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, score REAL, active BOOLEAN)",
         [],
     )
     .unwrap();
@@ -25,14 +25,15 @@ fn test_multi_statement_transaction_fixed_transfer() {
     let params = serde_json::json!({});
     let result = db_conn.query_run(&queries, "multi_statement_transfer", &params);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.unwrap().data.is_empty());
 
     let accounts = db_conn
         .query_run(&queries, "select_accounts", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts.data.len(), 2);
 
     let alice_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Alice"))
         .unwrap()
@@ -41,6 +42,7 @@ fn test_multi_statement_transaction_fixed_transfer() {
     assert_eq!(alice_balance, Some(900));
 
     let bob_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Bob"))
         .unwrap()
@@ -63,14 +65,85 @@ fn test_multi_statement_transaction_with_params() {
     let params = serde_json::json!({"from_name": "Alice", "to_name": "Bob", "initial_balance": 2000, "amount": 300});
     let result = db_conn.query_run(&queries, "multi_statement_transfer_with_params", &params);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    let result = result.unwrap();
+    assert!(result.data.is_empty());
+
+    // Verify that the SQL statements are properly transformed with named parameters
+    assert_eq!(
+        result.sql_statements.len(),
+        4,
+        "Should have 4 SQL statements"
+    );
+
+    // Check each statement contains the expected parts and named parameters instead of @param
+    assert!(
+        result.sql_statements[0].contains(
+            "INSERT INTO accounts2 (name, balance) VALUES (:from_name, :initial_balance)"
+        ),
+        "First statement should contain proper named parameters: {}",
+        &result.sql_statements[0]
+    );
+    assert!(
+        !result.sql_statements[0].contains("@from_name"),
+        "First statement still contains @param instead of :param"
+    );
+    assert!(
+        !result.sql_statements[0].contains("@initial_balance"),
+        "First statement still contains @param"
+    );
+
+    assert!(
+        result.sql_statements[1]
+            .contains("INSERT INTO accounts2 (name, balance) VALUES (:to_name, :initial_balance)"),
+        "Second statement should contain proper named parameters: {}",
+        &result.sql_statements[1]
+    );
+    assert!(
+        !result.sql_statements[1].contains("@to_name"),
+        "Second statement still contains @param"
+    );
+    assert!(
+        !result.sql_statements[1].contains("@initial_balance"),
+        "Second statement still contains @param"
+    );
+
+    assert!(
+        result.sql_statements[2]
+            .contains("UPDATE accounts2 SET balance = balance - :amount WHERE name = :from_name"),
+        "Third statement should contain proper named parameters: {}",
+        &result.sql_statements[2]
+    );
+    assert!(
+        !result.sql_statements[2].contains("@amount"),
+        "Third statement still contains @param"
+    );
+    assert!(
+        !result.sql_statements[2].contains("@from_name"),
+        "Third statement still contains @param"
+    );
+
+    assert!(
+        result.sql_statements[3]
+            .contains("UPDATE accounts2 SET balance = balance + :amount WHERE name = :to_name"),
+        "Fourth statement should contain proper named parameters: {}",
+        &result.sql_statements[3]
+    );
+    assert!(
+        !result.sql_statements[3].contains("@amount"),
+        "Fourth statement still contains @param"
+    );
+    assert!(
+        !result.sql_statements[3].contains("@to_name"),
+        "Fourth statement still contains @param"
+    );
 
     let accounts = db_conn
         .query_run(&queries, "select_accounts2", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts.data.len(), 2);
 
     let alice_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Alice"))
         .unwrap()
@@ -79,6 +152,7 @@ fn test_multi_statement_transaction_with_params() {
     assert_eq!(alice_balance, Some(1700));
 
     let bob_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Bob"))
         .unwrap()
@@ -108,7 +182,7 @@ fn test_multi_statement_transaction_failure() {
     let accounts = db_conn
         .query_run(&queries, "select_accounts", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(accounts.len(), 0);
+    assert_eq!(accounts.data.len(), 0);
 }
 
 #[test]
@@ -127,6 +201,7 @@ fn test_sql_injection_protection_name_parameter() {
     let initial_count = db_conn
         .query_run(&queries, "select_all", &serde_json::json!({}))
         .unwrap()
+        .data
         .len();
 
     let params = serde_json::json!({"name": sql_injection_attempt});
@@ -136,12 +211,12 @@ fn test_sql_injection_protection_name_parameter() {
 
     let params = serde_json::json!({"id": 1, "name": "TestUser", "source": "source"});
     let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
-    assert!(!result.is_empty());
+    assert!(!result.data.is_empty());
 
     let final_result = db_conn
         .query_run(&queries, "select_all", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(final_result.len(), initial_count + 1);
+    assert_eq!(final_result.data.len(), initial_count + 1);
 }
 
 #[test]
@@ -187,13 +262,13 @@ fn test_sql_injection_protection_safe_name_parameter() {
     let result = db_conn
         .query_run(&queries, "insert_with_params", &params)
         .unwrap();
-    assert!(result.is_empty());
+    assert!(result.data.is_empty());
 
     let params = serde_json::json!({"id": 100});
     let result = db_conn
         .query_run(&queries, "select_by_id", &params)
         .unwrap();
-    assert_eq!(result.len(), 1);
+    assert_eq!(result.data.len(), 1);
 }
 
 #[test]
@@ -274,12 +349,12 @@ fn test_multi_statement_no_params() {
     let insert_result = db_conn
         .query_run(&queries, "insert_multiple_fixed", &params)
         .unwrap();
-    assert!(insert_result.is_empty());
+    assert!(insert_result.data.is_empty());
 
     let result = db_conn
         .query_run(&queries, "select_multiple", &params)
         .unwrap();
-    assert_eq!(result.len(), 2);
+    assert_eq!(result.data.len(), 2);
 }
 
 #[test]
@@ -315,8 +390,8 @@ fn test_sqlite_row_error_handling() {
         .query_run(&queries, "select_wide_with_types", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 1);
-    let obj = &result[0];
+    assert_eq!(result.data.len(), 1);
+    let obj = &result.data[0];
 
     assert_eq!(obj.get("a"), Some(&serde_json::json!(1))); // Integer
     assert_eq!(obj.get("b"), Some(&serde_json::json!(3.145))); // Real/Float
@@ -356,10 +431,10 @@ fn test_sqlite_real_nan_handling() {
         .query_run(&queries, "select_float", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 2);
+    assert_eq!(result.data.len(), 2);
     // Check exact response values
-    assert_eq!(result[0], serde_json::json!({"value": null})); // Infinity -> null
-    assert_eq!(result[1], serde_json::json!({"value": "invalid"}));
+    assert_eq!(result.data[0], serde_json::json!({"value": null})); // Infinity -> null
+    assert_eq!(result.data[1], serde_json::json!({"value": "invalid"}));
 }
 
 #[test]
@@ -407,9 +482,9 @@ fn test_multi_table_name_parameters() {
         .query_run(&queries, "multi_table_test", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 1);
+    assert_eq!(result.data.len(), 1);
     assert_eq!(
-        result[0],
+        result.data[0],
         serde_json::json!({"id1": 1, "name1": "Alice", "id2": 2, "name2": "Bob", "id3": 3, "name3": "Charlie"})
     );
 }
@@ -459,7 +534,7 @@ fn test_multi_statement_table_name_parameters() {
     let transfer_result = db_conn
         .query_run(&queries, "multi_statement_table_transfer", &params)
         .unwrap();
-    assert!(transfer_result.is_empty());
+    assert!(transfer_result.data.is_empty());
 
     // Verify the data was transferred and modified
     let params = serde_json::json!({"dest_table": "dest_table"});
@@ -467,7 +542,226 @@ fn test_multi_statement_table_name_parameters() {
         .query_run(&queries, "select_dest_table", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0], serde_json::json!({"id": 1, "name": "ALICE"}));
-    assert_eq!(result[1], serde_json::json!({"id": 2, "name": "BOB"}));
+    assert_eq!(result.data.len(), 2);
+    assert_eq!(
+        result.data[0],
+        serde_json::json!({"id": 1, "name": "ALICE"})
+    );
+    assert_eq!(result.data[1], serde_json::json!({"id": 2, "name": "BOB"}));
+}
+
+#[test]
+fn test_sql_injection_protection_list_parameters() {
+    // Create queries with proper constraints for list parameters
+    let json_definitions = serde_json::json!({
+        "safe_int_list": {
+            "query": "SELECT * FROM source WHERE id IN :[targets]",
+            "returns": ["id", "name", "score"],
+            "args": {
+                "targets": { "itemtype": "integer" }
+            }
+        },
+        "safe_string_list": {
+            "query": "SELECT * FROM source WHERE name IN :[names]",
+            "returns": ["id", "name", "score"],
+            "args": {
+                "names": { "itemtype": "string" }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Create test table with safe data
+    let conn = setup_db();
+    conn.execute("INSERT INTO source VALUES (1, 'Alice', 95.0, 1)", [])
+        .unwrap();
+    conn.execute("INSERT INTO source VALUES (5, 'Bob', 87.5, 0)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Test that safe integer list works
+    let params = serde_json::json!({"targets": [1, 5]});
+    let result = db_conn
+        .query_run(&queries, "safe_int_list", &params)
+        .unwrap();
+    assert_eq!(result.data.len(), 2);
+
+    // Test SQL injection attempt through integer list - invalid type should fail
+    let params = serde_json::json!({"targets": ["1'; DROP TABLE source; --", 5]});
+    let err = db_conn
+        .query_run(&queries, "safe_int_list", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "integer at index 0");
+            assert_eq!(got, "\"1'; DROP TABLE source; --\"");
+        }
+        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    }
+
+    // Test SQL injection attempt through string list
+    let params = serde_json::json!({"names": ["Alice'; DROP TABLE source; --", "Bob"]});
+    let result = db_conn
+        .query_run(&queries, "safe_string_list", &params)
+        .unwrap();
+    // SQL injection should be blocked by prepared statements - no rows should match the malicious name
+    assert_eq!(result.data.len(), 1); // Only "Bob" should match
+
+    // Test that safe string values work in list
+    let params = serde_json::json!({"names": ["Alice", "Bob"]});
+    let result = db_conn
+        .query_run(&queries, "safe_string_list", &params)
+        .unwrap();
+    assert_eq!(result.data.len(), 2);
+
+    // Verify table still exists and data is safe
+    let params = serde_json::json!({"targets": [1, 5]});
+    let result = db_conn
+        .query_run(&queries, "safe_int_list", &params)
+        .unwrap();
+    assert_eq!(result.data.len(), 2);
+}
+
+#[test]
+fn test_list_parameter_functionality() {
+    let queries = QueryDefinitions::from_file("test_json/crud.json").unwrap();
+
+    // Create test table with several rows
+    let conn = setup_db();
+    conn.execute("INSERT INTO source VALUES (1, 'Alice', 95.0, 1)", [])
+        .unwrap();
+    conn.execute("INSERT INTO source VALUES (5, 'Bob', 87.5, 0)", [])
+        .unwrap();
+    conn.execute("INSERT INTO source VALUES (10, 'Charlie', 92.0, 1)", [])
+        .unwrap();
+    conn.execute("INSERT INTO source VALUES (15, 'David', 88.5, 0)", [])
+        .unwrap();
+    conn.execute("INSERT INTO source VALUES (20, 'Eve', 91.0, 1)", [])
+        .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let params = serde_json::json!({"table": "source", "targets": [1, 5, 10]});
+
+    let result = db_conn.query_run(&queries, "read", &params).unwrap();
+
+    // Should return 3 rows matching the ids [1, 5, 10]
+    assert_eq!(result.data.len(), 3);
+
+    let names: Vec<String> = result
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains(&"Alice".to_string()));
+    assert!(names.contains(&"Bob".to_string()));
+    assert!(names.contains(&"Charlie".to_string()));
+
+    // Test with different array - should only return IDs 5 and 15
+    let params = serde_json::json!({"table": "source", "targets": [5, 15]});
+    let result = db_conn.query_run(&queries, "read", &params).unwrap();
+    assert_eq!(result.data.len(), 2);
+
+    let names: Vec<String> = result
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains(&"Bob".to_string()));
+    assert!(names.contains(&"David".to_string()));
+
+    // Test empty list - should fail
+    let params = serde_json::json!({"table": "source", "targets": []});
+    let result = db_conn.query_run(&queries, "read", &params);
+    assert!(result.is_err());
+
+    // Test multiple list parameters
+    let params = serde_json::json!({"table": "source", "ids": [1, 5], "scores": [95.0, 87.5]});
+    let result = db_conn.query_run(&queries, "multi_list", &params).unwrap();
+
+    // Should return records where id IN [1, 5] AND score IN [95.0, 87.5]
+    // This matches Alice (id=1, score=95.0) and Bob (id=5, score=87.5)
+    assert_eq!(result.data.len(), 2);
+
+    let names: Vec<String> = result
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+    assert!(names.contains(&"Alice".to_string()));
+    assert!(names.contains(&"Bob".to_string()));
+
+    // Test string list parameters
+    let params = serde_json::json!({"table": "source", "names": ["Alice", "Charlie", "Eve"]});
+    let result = db_conn.query_run(&queries, "string_list", &params).unwrap();
+
+    // Should return 3 rows matching the names ["Alice", "Charlie", "Eve"]
+    assert_eq!(result.data.len(), 3);
+
+    let returned_names: Vec<String> = result
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+    assert!(returned_names.contains(&"Alice".to_string()));
+    assert!(returned_names.contains(&"Charlie".to_string()));
+    assert!(returned_names.contains(&"Eve".to_string()));
+
+    // Test with different string array - should only return Alice and Eve
+    let params = serde_json::json!({"table": "source", "names": ["Alice", "Eve"]});
+    let result = db_conn.query_run(&queries, "string_list", &params).unwrap();
+    assert_eq!(result.data.len(), 2);
+
+    let returned_names: Vec<String> = result
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+    assert!(returned_names.contains(&"Alice".to_string()));
+    assert!(returned_names.contains(&"Eve".to_string()));
+
+    // Test boolean list parameters
+    let params = serde_json::json!({"table": "source", "statuses": [true, false]});
+    let result = db_conn
+        .query_run(&queries, "boolean_list", &params)
+        .unwrap();
+
+    // Should return all 5 rows since active contains both true and false values
+    assert_eq!(result.data.len(), 5);
+
+    // Test with only true values
+    let params = serde_json::json!({"table": "source", "statuses": [true]});
+    let result = db_conn
+        .query_run(&queries, "boolean_list", &params)
+        .unwrap();
+
+    // Should return 3 rows with active=true (Alice=1, Charlie=1, Eve=1)
+    assert_eq!(result.data.len(), 3);
+
+    let returned_names: Vec<String> = result
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+    assert!(returned_names.contains(&"Alice".to_string()));
+    assert!(returned_names.contains(&"Charlie".to_string()));
+    assert!(returned_names.contains(&"Eve".to_string()));
+
+    // Test with only false values
+    let params = serde_json::json!({"table": "source", "statuses": [false]});
+    let result = db_conn
+        .query_run(&queries, "boolean_list", &params)
+        .unwrap();
+
+    // Should return 2 rows with active=false (Bob=0, David=0)
+    assert_eq!(result.data.len(), 2);
+
+    let returned_names: Vec<String> = result
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+    assert!(returned_names.contains(&"Bob".to_string()));
+    assert!(returned_names.contains(&"David".to_string()));
 }

@@ -1,36 +1,55 @@
-# Release Notes v0.3.0
+# Release Notes v0.4.0
 
-## Major Feature Addition
-- **table name parameter support** - Allow dynamic table names using `#table_name` syntax in SQL queries
-- Table names can be parameterized with enum constraints for security and validation
-- Enhanced flexibility for multi-tenant applications and dynamic schema operations
+## ⚠️ **Breaking API Change**
 
-## Architecture Refactoring
-- **Simplified inner structure** - Streamlined code organization for better maintainability
-- Improved module separation and reduced complexity
-- Enhanced parameter validation and processing pipeline
-- Better error handling and constraint validation
+### QueryResult Structure Enhancement
+- `query_run()` methods now return `QueryResult` struct instead of `Vec<serde_json::Value>`
+- `QueryResult` contains both JSON results and executed SQL statements for debugging
+- **Breaking**: Access JSON data via `.data` field, SQL statements via `.sql_statements`
 
-## Examples
+## ✨ **New Features**
+
+### List Parameters Support
+- New parameter syntax `:[list_name]` for IN clauses and array operations
+- Example: `SELECT * FROM users WHERE id IN :[user_ids]`
+- Automatic type assignment to "list" with optional item type validation
+- Use `{"itemtype": "integer"}` in args to specify list item types
+
+### Default Parameter Types
+- `@parameter` placeholders now default to "string" type when no args specified
+- No longer requires explicit type specification for string parameters
+- Reduces configuration verbosity for common string parameters
+
+## Before (v0.3.x)
 ```rust
-// Query with dynamic table name
-let params = serde_json::json!({"source": "users", "id": 42});
-let result = conn.query_run(&queries, "query_from_table", &params)?;
+let result: Vec<serde_json::Value> = conn.query_run(&queries, "my_query", &params)?;
+for item in result {
+    println!("Data: {:?}", item);
+}
+```
 
-// Configuration with table name constraints
-"query_from_table": {
-  "query": "SELECT * FROM #source WHERE id=@id",
-  "args": {
-    "source": {"enum": ["users", "accounts"]},
-    "id": {"type": "integer"}
-  }
+## After (v0.4.0)
+```rust
+let query_result: QueryResult = conn.query_run(&queries, "my_query", &params)?;
+for item in &query_result.data {
+    println!("Data: {:?}", item);
+}
+// New debugging feature
+for sql in &query_result.sql_statements {
+    println!("Executed SQL: {}", sql);
 }
 ```
 
 ## Migration Notes
-- Existing `@param` syntax continues to work unchanged
-- No breaking changes to existing query definitions
-- Table name parameters (`#table`) are validated using enum constraints only
+- Change all `let result` declarations to `let query_result`
+- Update all direct vector operations to use `.data` field:
+  - `result.len()` → `query_result.data.len()`
+  - `result.iter()` → `query_result.data.iter()`
+  - `result[0]` → `query_result.data[0]`
+  - etc.
+- **New Benefit**: Access executed SQL statements via `query_result.sql_statements` for debugging
+- Existing query definitions and JSON responses remain unchanged
+- All parameter validation and SQL injection protection features preserved
 
 ---
-**Version 0.3.0** - Enhanced parameter system with dynamic table name support
+**Version 0.4.0** - Enhanced query result structure with SQL statement debugging, list parameters, and default type assignment

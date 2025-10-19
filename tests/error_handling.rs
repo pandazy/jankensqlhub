@@ -190,7 +190,7 @@ fn test_parameter_validation_range_non_numeric() {
             .unwrap_err();
         match err {
             JankenError::ParameterTypeMismatch { expected, got } => {
-                assert_eq!(expected, "number (integer/float)");
+                assert_eq!(expected, "integer");
                 assert_eq!(got, expected_got);
             }
             _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
@@ -205,10 +205,7 @@ fn test_parameter_validation_enum() {
             "query": "select * from source where name=@status",
             "returns": ["id", "name", "score"],
             "args": {
-                "status": {
-                    "type": "string",
-                    "enum": ["active", "inactive", "pending"]
-                }
+                "status": { "enum": ["active", "inactive", "pending"] }
             }
         },
         "select_with_enum_int": {
@@ -624,7 +621,6 @@ fn test_table_name_parameter_security_and_validation() {
             "query": "SELECT * FROM #table_name WHERE id=@id",
             "returns": ["id", "name"],
             "args": {
-                "table_name": { "type": "table_name" },
                 "id": { "type": "integer" }
             }
         }
@@ -636,23 +632,28 @@ fn test_table_name_parameter_security_and_validation() {
     let type_mismatch_cases = vec![
         (
             serde_json::json!({"table_name": 123, "id": 1}),
-            "string (table_name)",
+            "table_name",
             "123",
         ),
         (
             serde_json::json!({"table_name": true, "id": 1}),
-            "string (table_name)",
+            "table_name",
             "true",
         ),
         (
             serde_json::json!({"table_name": null, "id": 1}),
-            "string (table_name)",
+            "table_name",
             "null",
         ),
         (
             serde_json::json!({"table_name": ["table"], "id": 1}),
-            "string (table_name)",
+            "table_name",
             "[\"table\"]",
+        ),
+        (
+            serde_json::json!({"table_name": {"nested": "value"}, "id": 1}),
+            "table_name",
+            "{\"nested\":\"value\"}",
         ),
     ];
 
@@ -717,8 +718,8 @@ fn test_table_name_parameter_security_and_validation() {
     );
 
     let data = result.unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0], serde_json::json!({"id": 1, "name": "safe"}));
+    assert_eq!(data.data.len(), 1);
+    assert_eq!(data.data[0], serde_json::json!({"id": 1, "name": "safe"}));
 }
 
 #[test]
@@ -802,23 +803,23 @@ fn test_parameter_parsing_with_valid_parameters() {
 
 #[test]
 fn test_no_args_provided_for_parameter_in_sql() {
-    // Test that parameters in SQL require an args object to be provided
+    // Test that parameters in SQL work with no args - they get default string type
     use jankensqlhub::QueryDef;
 
     let sql = "SELECT * FROM source WHERE id=@param";
     let result = QueryDef::from_sql(sql, None);
 
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "args object with parameter definitions");
-            assert!(
-                got.contains("non-table-name parameters found in SQL but no args object provided")
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
-    }
+    assert!(result.is_ok());
+    let query_def = result.unwrap();
+
+    // Verify the parameter was created with default string type and no constraints
+    assert_eq!(query_def.parameters.len(), 1);
+    let param = &query_def.parameters[0];
+    assert_eq!(param.name, "param");
+    assert_eq!(param.param_type.to_string(), "string");
+    assert!(param.constraints.range.is_none());
+    assert!(param.constraints.pattern.is_none());
+    assert!(param.constraints.enum_values.is_none());
 }
 
 #[test]
@@ -942,22 +943,35 @@ fn test_from_json_query_definition_not_object() {
     }
 }
 
-/// Test parameter name conflict error when same name used for param and table_name
+/// Test parameter name conflict errors
 #[test]
 fn test_parameter_name_conflict_error() {
     use jankensqlhub::parameters::parse_parameters_with_quotes;
 
-    // Test SQL with same name used as both parameter and table name
-    let sql = "SELECT * FROM #conflict WHERE id=@conflict";
-    let result = parse_parameters_with_quotes(sql);
-    assert!(result.is_err());
+    // Test conflict cases
+    let conflict_cases = vec![
+        ("SELECT * FROM #conflict WHERE id=@conflict", "conflict"), // table vs param
+        ("SELECT * FROM #conflict WHERE id=:[conflict]", "conflict"), // table vs list
+        (
+            "SELECT * FROM table WHERE id=:[conflict] AND name=@conflict",
+            "conflict",
+        ), // list vs param
+    ];
 
-    let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterNameConflict(name) => {
-            assert_eq!(name, "conflict");
+    for (sql, expected_conflict_name) in conflict_cases {
+        let result = parse_parameters_with_quotes(sql);
+        assert!(result.is_err(), "Expected conflict error for SQL: {sql}");
+
+        let err = result.unwrap_err();
+        match err {
+            JankenError::ParameterNameConflict(name) => {
+                assert_eq!(
+                    name, expected_conflict_name,
+                    "Conflict name mismatch for SQL: {sql}"
+                );
+            }
+            _ => panic!("Expected ParameterNameConflict for SQL: {sql}, got: {err:?}"),
         }
-        _ => panic!("Expected ParameterNameConflict, got: {err:?}"),
     }
 }
 
@@ -1015,8 +1029,8 @@ fn test_table_name_validation_error() {
     let result = db_conn.query_run(&queries, "table_query", &params);
     assert!(result.is_ok(), "Valid table name should work");
     let data = result.unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0], serde_json::json!({"id": 42}));
+    assert_eq!(data.data.len(), 1);
+    assert_eq!(data.data[0], serde_json::json!({"id": 42}));
 }
 
 #[test]
@@ -1037,7 +1051,10 @@ fn test_invalid_parameter_type_error() {
     let err = result.unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "integer, string, float, or boolean");
+            assert_eq!(
+                expected,
+                "integer, string, float, boolean, table_name or list"
+            );
             assert_eq!(got, "invalid_type");
         }
         _ => panic!("Expected ParameterTypeMismatch for invalid parameter type, got: {err:?}"),
@@ -1158,9 +1175,201 @@ fn test_sqlite_type_mismatch_errors() {
     let err = result.unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "string (table_name)");
+            assert_eq!(expected, "table_name");
             assert_eq!(got, "123");
         }
         _ => panic!("Expected ParameterTypeMismatch for table_name parameter, got: {err:?}"),
+    }
+}
+
+#[test]
+fn test_list_parameter_constraint_validation_errors() {
+    // Test list parameter constraint validation errors
+
+    // Test list with item_type integer - validation errors for incorrect item types
+    let json_definitions = serde_json::json!({
+        "list_int_constraints": {
+            "query": "SELECT * FROM source WHERE id IN :[ints]",
+            "args": {
+                "ints": { "type": "list", "itemtype": "integer" }
+            }
+        },
+        "list_string_pattern": {
+            "query": "SELECT * FROM source WHERE name IN :[names]",
+            "args": {
+                "names": { "type": "list", "itemtype": "string", "pattern": "^[A-Z][a-z]+$" }
+            }
+        },
+        "list_float_range": {
+            "query": "SELECT * FROM source WHERE score IN :[scores]",
+            "args": {
+                "scores": { "type": "list", "itemtype": "float", "range": [0.0, 100.0] }
+            }
+        },
+        "list_enum": {
+            "query": "SELECT * FROM source WHERE status IN :[statuses]",
+            "args": {
+                "statuses": { "type": "list", "itemtype": "string", "enum": ["active", "inactive", "pending"] }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let conn = setup_db();
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Test list with mixed item types - should fail at first invalid item (index 1)
+    let params = serde_json::json!({"ints": [1, "invalid_string", 3.0, true]});
+    let err = db_conn
+        .query_run(&queries, "list_int_constraints", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "integer at index 1");
+            assert_eq!(got, "\"invalid_string\"");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for invalid list item type, got: {err:?}"),
+    }
+
+    // Test list with string pattern - invalid names should fail
+    let params = serde_json::json!({"names": ["Alice", "lowercase_name", "123invalid"]});
+    let err = db_conn
+        .query_run(&queries, "list_string_pattern", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert!(expected.contains("string matching pattern"));
+            assert_eq!(got, "lowercase_name");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for pattern validation, got: {err:?}"),
+    }
+
+    // Test list with float range - out of range values should fail
+    let params = serde_json::json!({"scores": [85.5, -5.0, 150.5, 92.0]});
+    let err = db_conn
+        .query_run(&queries, "list_float_range", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert!(expected.contains("value between 0 and 100"));
+            assert_eq!(got, "-5");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for range validation, got: {err:?}"),
+    }
+
+    // Test list with enum - invalid enum values should fail
+    let params = serde_json::json!({"statuses": ["active", "unknown_status", "pending"]});
+    let err = db_conn
+        .query_run(&queries, "list_enum", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert!(expected.contains("active"));
+            assert!(expected.contains("inactive"));
+            assert!(expected.contains("pending"));
+            assert_eq!(got, "\"unknown_status\"");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for enum validation, got: {err:?}"),
+    }
+
+    // Test empty list validation (should fail at runner level, not constraint level)
+    let params = serde_json::json!({"ints": []});
+    let err = db_conn
+        .query_run(&queries, "list_int_constraints", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "non-empty list");
+            assert_eq!(got, "empty array");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for empty list, got: {err:?}"),
+    }
+
+    // Test list with wrong basic type (pass non-array)
+    let params = serde_json::json!({"ints": "not_an_array"});
+    let err = db_conn
+        .query_run(&queries, "list_int_constraints", &params)
+        .unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "list");
+            assert_eq!(got, "\"not_an_array\"");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for non-array list, got: {err:?}"),
+    }
+}
+
+#[test]
+fn test_invalid_itemtype_definition_error() {
+    // Test that invalid itemtypes are caught at definition time (parse_constraints)
+    // TableName and List should not be allowed as item types
+
+    // Test TableName as item type - should fail at definition time
+    let json_definitions_invalid_table = serde_json::json!({
+        "list_table_item": {
+            "query": "SELECT * FROM source WHERE id IN :[tables]",
+            "args": {
+                "tables": { "type": "list", "itemtype": "table_name" }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_invalid_table);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(
+                expected,
+                "item_type for list items cannot be TableName or List"
+            );
+            assert_eq!(got, "table_name");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for invalid itemtype TableName, got: {err:?}"),
+    }
+
+    // Test List as item type - should fail at definition time
+    let json_definitions_invalid_list = serde_json::json!({
+        "list_list_item": {
+            "query": "SELECT * FROM source WHERE id IN :[nested_lists]",
+            "args": {
+                "nested_lists": { "type": "list", "itemtype": "list" }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_invalid_list);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(
+                expected,
+                "item_type for list items cannot be TableName or List"
+            );
+            assert_eq!(got, "list");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for invalid itemtype List, got: {err:?}"),
+    }
+
+    // Test invalid/malformed itemtype string - should fail at definition time
+    let json_definitions_invalid_type = serde_json::json!({
+        "list_invalid_item": {
+            "query": "SELECT * FROM source WHERE id IN :[items]",
+            "args": {
+                "items": { "type": "list", "itemtype": "invalid_type_not_supported" }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_invalid_type);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert!(expected.contains("integer, string, float, boolean, table_name or list"));
+            assert_eq!(got, "invalid_type_not_supported");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for invalid type string, got: {err:?}"),
     }
 }

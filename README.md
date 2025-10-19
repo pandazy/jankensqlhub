@@ -9,9 +9,9 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 ### Core Capabilities
 - ✅ **Parameterizable SQL Templates** - `@param_name` syntax in queries, types defined separately
 - ✅ **Dynamic Table Names** - `#table_name` syntax for parameterizable table names
+- ✅ **List Parameter Support** - :[list_param] syntax for IN clauses with item type validation
 - ✅ **Multi-Database Support** - SQLite (?1,?2), PostgreSQL planned for future releases
 - ✅ **SQL Injection Protection** - Automatic prepared statement generation
-- ✅ **Quote-Aware Parsing** - Parameters inside quotes are treated as literals
 - ✅ **Type Safety & Validation** - Parameter type validation with constraints (range, pattern, enum, table name validation)
 - ✅ **Parameter Constraints** - Range limits, regex patterns, enumerated values, and table name validation
 
@@ -23,11 +23,14 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 
 ### Parameter Syntax
 ```sql
--- Basic parameter syntax - no types in SQL, only parameter names
+-- Basic parameter syntax - @params default to string type if no args specified
 SELECT * FROM users WHERE id=@user_id AND name=@user_name
 
--- Dynamic table name parameters
+-- Dynamic table name parameters - always table_name type with optional constraints
 SELECT * FROM #table_name WHERE id=@user_id
+
+-- List parameters for IN clauses - always list type with item type validation
+SELECT * FROM users WHERE id IN :[user_ids] AND status IN :[statuses]
 
 -- Parameters in quoted strings (treated as literals)
 SELECT * FROM users WHERE name='@literal_text'
@@ -53,9 +56,9 @@ let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?
 
 Each query definition contains:
 - `"query"`: Required - The SQL statement with `@parameter` (`#table_name`) placeholders
-- `"args"`: Required when `@parameter` are used in the query
-  - Parameter definitions with types and constraints. Table name parameters (`#table`) support enum and pattern constraints only.
+- `"args"`: Optional - only needed to override default types or add constraints
 - `"returns"`: Optional - Array of column names for SELECT queries (determines JSON response structure)
+
 ```json
 {
   "get_user": {
@@ -115,6 +118,13 @@ Each query definition contains:
       "dest_table": {"enum": ["accounts", "users"]},
       "name": {"type": "string"}
     }
+  },
+  "get_users_by_ids": {
+    "query": "SELECT id, name FROM users WHERE id IN :[user_ids]",
+    "returns": ["id", "name"],
+    "args": {
+      "user_ids": {"itemtype": "integer"}
+    }
   }
 }
 ```
@@ -137,39 +147,50 @@ let queries = QueryDefinitions::from_json(json)?;
 let sqlite_conn = DatabaseConnection::SQLite(Connection::open_in_memory()?);
 let mut conn = DatabaseConnection::SQLite(conn);
 
-// Get user by ID
+// Get user by ID (returns QueryResult with JSON data and SQL execution details)
 let params = serde_json::json!({"user_id": 42});
-let result = conn.query_run(&queries, "get_user", &params)?;
+let query_result = conn.query_run(&queries, "get_user", &params)?;
+// Access JSON results: query_result.data
+// Access executed SQL statements: query_result.sql_statements (for debugging)
 
 // Create new user
 let params = serde_json::json!({"name": "Alice", "email": "alice@example.com"});
-let result = conn.query_run(&queries, "create_user", &params)?;
+let query_result = conn.query_run(&queries, "create_user", &params)?;
 
 // Query from dynamic table
 let params = serde_json::json!({"source": "accounts", "id": 1, "name": "John"});
-let result = conn.query_run(&queries, "query_from_table", &params)?;
+let query_result = conn.query_run(&queries, "query_from_table", &params)?;
 
 // Insert into dynamic table
 let params = serde_json::json!({"dest_table": "users", "name": "Bob"});
-let result = conn.query_run(&queries, "insert_into_dynamic_table", &params)?;
+let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params)?;
 ```
 
 ### 4. Parameter Types and Constraints Supported
+
+**Automatic Type Assignment:**
+- `@param` parameters: Default to "string" type (can be overridden)
+- `#table_name` parameters: Automatically assigned "table_name" type
+- `:[list_param]` parameters: Automatically assigned "list" type
+
 ```rust
 // Parameter types (all case-insensitive)
-"integer", "string", "float", "boolean"
+"integer", "string", "float", "boolean", "table_name", "list"
 
 // Constraint types
 "range": [min, max]     // For numeric types (integer/float)
 "pattern": "regex"      // For string types (e.g., email validation)
 "enum": [value1, ...]   // For any type (allowed values). Table names support enum only.
+"itemtype": "type"      // For list types: specifies the type of each item in the list
 
 // Examples in args object
-"id": {"type": "integer"}                                                 // Basic integer
+"id": {"type": "integer"}                                                 // Basic integer (overridden from default string)
 "balance": {"type": "float", "range": [0.0, 1000000.0]}                   // Float with range
-"status": {"type": "string", "enum": ["active", "inactive", "pending"]}  // String enum
-"email": {"type": "string", "pattern": "\\S+@\\S+\\.\\S+"}              // String with regex
-"source": {"enum": ["users", "accounts"]}                               // Table name enum
+"status": {"enum": ["active", "inactive", "pending"]}  // String enum
+"email": { "pattern": "\\S+@\\S+\\.\\S+"}                                // String with regex
+"user_ids": {"itemtype": "integer"}                                     // List of integers for IN clauses
+"names": {"type": "boolean"}                                              // Explicit string type (same as default)
+"source": {"enum": ["users", "accounts"]}                               // Table name enum (table_name type auto-assigned)
 ```
 
 ## ⚡ Performance Characteristics

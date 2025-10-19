@@ -1,14 +1,12 @@
 use crate::{
     ParameterType, QueryDefinitions, parameters,
-    result::{JankenError, Result},
+    result::{JankenError, QueryResult, Result},
     str_utils,
 };
-use regex::Regex;
 use rusqlite::Connection;
 
-/// Regex for table name parameters (#table_name syntax)
-static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"#(\w+)").unwrap());
+/// Type alias for parameter preparation result to reduce type complexity
+type PreparedParametersResult = (String, Vec<(String, Box<dyn rusqlite::ToSql>)>);
 
 // This function is now unused since table name validation is handled in parameters.rs
 // fn is_valid_table_name(name: &str) -> bool {
@@ -20,6 +18,42 @@ fn quote_identifier(name: &str) -> String {
     format!("\"{}\"", name.replace("\"", "\"\""))
 }
 
+/// Convert a serde_json Value to a rusqlite ToSql type for list items
+fn json_value_to_sql(value: &serde_json::Value) -> Box<dyn rusqlite::ToSql> {
+    match value {
+        serde_json::Value::String(s) => Box::new(s.clone()),
+        serde_json::Value::Number(n) => {
+            if n.is_i64() {
+                Box::new(n.as_i64().unwrap())
+            } else {
+                Box::new(n.as_f64().unwrap())
+            }
+        }
+        serde_json::Value::Bool(b) => Box::new(*b as i32),
+        serde_json::Value::Null => Box::new(rusqlite::types::Value::Null),
+        serde_json::Value::Array(a) => Box::new(format!("{a:?}")),
+        serde_json::Value::Object(o) => Box::new(format!("{o:?}")),
+    }
+}
+
+/// Convert a JSON value to rusqlite ToSql based on parameter type definition
+fn parameter_value_to_sql(
+    param_value: &serde_json::Value,
+    param_type: &ParameterType,
+) -> Box<dyn rusqlite::ToSql> {
+    match param_type {
+        ParameterType::String => Box::new(param_value.as_str().unwrap().to_string()),
+        ParameterType::Integer => Box::new(param_value.as_i64().unwrap()),
+        ParameterType::Float => Box::new(param_value.as_f64().unwrap()),
+        ParameterType::Boolean => Box::new(param_value.as_bool().unwrap() as i32),
+        ParameterType::TableName => Box::new(param_value.as_str().unwrap().to_string()),
+        ParameterType::List => {
+            // List parameters are handled separately in list expansion
+            Box::new(String::new()) // Placeholder
+        }
+    }
+}
+
 /// Trait for executing parameterized SQL queries against different database backends
 pub trait QueryRunner {
     fn query_run(
@@ -27,7 +61,7 @@ pub trait QueryRunner {
         queries: &QueryDefinitions,
         query_name: &str,
         params: &serde_json::Value,
-    ) -> Result<Vec<serde_json::Value>>;
+    ) -> Result<QueryResult>;
 }
 
 pub fn query_run_sqlite(
@@ -35,7 +69,7 @@ pub fn query_run_sqlite(
     queries: &QueryDefinitions,
     query_name: &str,
     request_params: &serde_json::Value,
-) -> Result<Vec<serde_json::Value>> {
+) -> Result<QueryResult> {
     let query = queries
         .definitions
         .get(query_name)
@@ -52,31 +86,24 @@ pub fn query_run_sqlite(
     let tx = conn.transaction().map_err(JankenError::Sqlite)?;
 
     // Handle all queries uniformly within transactions
-    let result = execute_query_unified(query, request_params_obj, &tx)?;
+    let query_result = execute_query_unified(query, request_params_obj, &tx)?;
 
     // Always commit the transaction (for both single and multi-statement queries)
     tx.commit().map_err(JankenError::Sqlite)?;
-    Ok(result)
+    Ok(query_result)
 }
 
 pub fn execute_query_unified(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     tx: &rusqlite::Transaction,
-) -> Result<Vec<serde_json::Value>> {
+) -> Result<QueryResult> {
     if !query.returns.is_empty() {
         // Query with returns specified - return structured data
-        let prepared =
-            prepare_single_statement(&query.sql, &query.parameters, request_params_obj, &|idx| {
-                format!("?{idx}")
-            })?;
+        let prepared = prepare_single_statement(&query.sql, &query.parameters, request_params_obj)?;
         let mut stmt = tx.prepare(&prepared.sql)?;
-        let stmt_params: Vec<&Box<dyn rusqlite::ToSql>> = prepared
-            .param_positions
-            .iter()
-            .map(|&idx| &prepared.param_values[idx])
-            .collect();
-        let rows = stmt.query_map(rusqlite::params_from_iter(stmt_params), |row| {
+        let named_params = prepared.as_named_params();
+        let rows = stmt.query_map(&named_params[..], |row| {
             let mut obj = serde_json::Map::new();
             for (idx, field_name) in query.returns.iter().enumerate() {
                 let value: rusqlite::Result<serde_json::Value> = match row.get_ref(idx) {
@@ -107,11 +134,17 @@ pub fn execute_query_unified(
             Ok(serde_json::Value::Object(obj))
         })?;
         let result = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(result)
+        Ok(QueryResult {
+            sql_statements: vec![prepared.sql],
+            data: result,
+        })
     } else {
         // Mutation query (INSERT/UPDATE/DELETE/etc.) - split and execute within transaction
-        execute_mutation_query(query, request_params_obj, tx)?;
-        Ok(vec![])
+        let sql_statements = execute_mutation_query(query, request_params_obj, tx)?;
+        Ok(QueryResult {
+            sql_statements,
+            data: vec![],
+        })
     }
 }
 
@@ -119,44 +152,96 @@ fn execute_mutation_query(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     tx: &rusqlite::Transaction,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut sql_statements = Vec::new();
     if query.sql.contains(';') {
         // Has parameters - split into individual statements and execute each one
         let individual_statements = str_utils::split_sql_statements(&query.sql);
 
         for statement_sql in individual_statements {
             // Execute each statement with the appropriate parameters
-            execute_single_statement(tx, &statement_sql, &query.parameters, request_params_obj)?;
+            let sql = execute_single_statement(
+                tx,
+                &statement_sql,
+                &query.parameters,
+                request_params_obj,
+            )?;
+            sql_statements.push(sql);
         }
     } else {
         // Single-statement mutation - prepare and execute normally with all parameters
-        let prepared =
-            prepare_single_statement(&query.sql, &query.parameters, request_params_obj, &|idx| {
-                format!("?{idx}")
-            })?;
-        let stmt_params: Vec<&Box<dyn rusqlite::ToSql>> = prepared
-            .param_positions
-            .iter()
-            .map(|&idx| &prepared.param_values[idx])
-            .collect();
+        let prepared = prepare_single_statement(&query.sql, &query.parameters, request_params_obj)?;
+        let named_params = prepared.as_named_params();
         let mut stmt = tx.prepare(&prepared.sql)?;
-        stmt.execute(rusqlite::params_from_iter(stmt_params))
+        stmt.execute(&named_params[..])
             .map_err(JankenError::Sqlite)?;
+        sql_statements.push(prepared.sql);
     }
 
-    Ok(())
+    Ok(sql_statements)
 }
 
-/// Convert request parameters map to Box<dyn rusqlite::ToSql> vector for SQLite execution
-/// This is called just before query execution to minimize time spent in rigid rusqlite::ToSql format
-fn convert_params_to_sqlite(
+/// Result of preparing a single SQL statement with parameter conversion
+struct PreparedStatement {
+    /// The SQL with placeholders ready for execution
+    sql: String,
+    /// Named parameters ready for rusqlite execution: (:name, value)
+    named_params: Vec<(String, Box<dyn rusqlite::ToSql>)>,
+}
+
+/// Method to convert parameters to Rusqlite named params format
+impl PreparedStatement {
+    /// Get parameters in rusqlite named parameter format
+    fn as_named_params(&self) -> Vec<(&str, &dyn rusqlite::ToSql)> {
+        self.named_params
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_ref()))
+            .collect()
+    }
+}
+
+/// Replace @parameters with :parameters and collect their values as rusqlite types (excluding table names)
+fn prepare_statement_parameters(
+    statement_sql: &str,
+    all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-    param_defs: &[crate::parameters::Parameter],
-) -> Result<Vec<Box<dyn rusqlite::ToSql>>> {
-    // Check and collect param values in the SAME order as they appear in the query definition
-    // This ensures parameter positions match the prepared statement's placeholders
-    let mut request_param_values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    for param_def in param_defs {
+) -> Result<PreparedParametersResult> {
+    let statement_param_names =
+        parameters::extract_parameters_with_regex(statement_sql, &parameters::PARAMETER_REGEX);
+    let mut prepared_sql = statement_sql.to_string();
+    let mut named_params = Vec::new();
+
+    for param_name in &statement_param_names {
+        prepared_sql = prepared_sql.replace(&format!("@{param_name}"), &format!(":{param_name}"));
+        // Get the parameter value from request params
+        let param_value = request_params_obj
+            .get(param_name)
+            .ok_or_else(|| JankenError::ParameterNotProvided(param_name.clone()))?;
+
+        // Find the parameter definition for type validation
+        let param_def = all_parameters
+            .iter()
+            .find(|p| p.name == *param_name)
+            .ok_or_else(|| JankenError::ParameterNotProvided(param_name.clone()))?;
+
+        // Convert JSON value to rusqlite::ToSql based on parameter type (validation already done upstream)
+        let to_sql: Box<dyn rusqlite::ToSql> =
+            parameter_value_to_sql(param_value, &param_def.param_type);
+        named_params.push((format!(":{param_name}"), to_sql));
+    }
+
+    Ok((prepared_sql, named_params))
+}
+
+/// Create a prepared statement from SQL with proper parameter replacement
+/// Returns the prepared statement with SQL and named parameters for execution
+fn prepare_single_statement(
+    statement_sql: &str,
+    all_parameters: &[crate::parameters::Parameter],
+    request_params_obj: &serde_json::Map<String, serde_json::Value>,
+) -> Result<PreparedStatement> {
+    // Validate parameters first to ensure consistency and prevent SQL injection
+    for param_def in all_parameters {
         let value = request_params_obj
             .get(&param_def.name)
             .ok_or_else(|| JankenError::ParameterNotProvided(param_def.name.clone()))?;
@@ -165,101 +250,13 @@ fn convert_params_to_sqlite(
         param_def
             .constraints
             .validate(value, &param_def.param_type)?;
-
-        match &param_def.param_type {
-            ParameterType::String => {
-                let str_val = value
-                    .as_str()
-                    .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                        expected: "string".to_string(),
-                        got: value.to_string(),
-                    })?;
-                request_param_values.push(Box::new(str_val.to_string()));
-            }
-            ParameterType::Integer => {
-                let int_val = value
-                    .as_i64()
-                    .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                        expected: "integer".to_string(),
-                        got: value.to_string(),
-                    })?;
-                request_param_values.push(Box::new(int_val));
-            }
-            ParameterType::Float => {
-                let float_val =
-                    value
-                        .as_f64()
-                        .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                            expected: "float".to_string(),
-                            got: value.to_string(),
-                        })?;
-                request_param_values.push(Box::new(float_val));
-            }
-            ParameterType::Boolean => {
-                let bool_val =
-                    value
-                        .as_bool()
-                        .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                            expected: "boolean".to_string(),
-                            got: value.to_string(),
-                        })?;
-                // Convert boolean to integer for SQLite (true=1, false=0)
-                let int_val = if bool_val { 1 } else { 0 };
-                request_param_values.push(Box::new(int_val));
-            }
-            ParameterType::TableName => {
-                // TableName parameters are validated to be strings during constraints validation
-                let table_name = value.as_str().unwrap();
-                // Table name format validation is handled by parameter constraints validation
-                request_param_values.push(Box::new(table_name.to_string()));
-            }
-        }
     }
-    Ok(request_param_values)
-}
 
-/// Result of preparing a single SQL statement with parameter conversion
-struct PreparedStatement {
-    /// The SQL with placeholders ready for execution
-    sql: String,
-    /// Positions of parameters in the global parameter list
-    param_positions: Vec<usize>,
-    /// Converted parameter values ready for SQLite execution
-    param_values: Vec<Box<dyn rusqlite::ToSql>>,
-}
-
-/// Create a prepared statement from SQL with proper parameter replacement
-/// Returns the prepared statement with SQL, parameter indices, and converted parameter values
-fn prepare_single_statement(
-    statement_sql: &str,
-    all_parameters: &[crate::parameters::Parameter],
-    request_params_obj: &serde_json::Map<String, serde_json::Value>,
-    placeholder_gen: &dyn Fn(usize) -> String,
-) -> Result<PreparedStatement> {
-    // Convert parameters first to ensure consistency and prevent SQL injection
-    let request_param_values = convert_params_to_sqlite(request_params_obj, all_parameters)?;
-    let statement_param_names = parameters::extract_parameters_in_statement(statement_sql);
-    let mut prepared_sql = statement_sql.to_string();
-    let mut param_positions = Vec::new();
-    let mut next_placeholder_idx = 1;
-
-    // Replace @parameters first
-    for param_name in statement_param_names {
-        if let Some(global_index) = all_parameters
-            .iter()
-            .position(|global_param| global_param.name == param_name)
-        {
-            param_positions.push(global_index);
-            prepared_sql = prepared_sql.replace(
-                &format!("@{param_name}"),
-                &placeholder_gen(next_placeholder_idx),
-            );
-            next_placeholder_idx += 1;
-        }
-    }
+    let (mut prepared_sql, mut named_params) =
+        prepare_statement_parameters(statement_sql, all_parameters, request_params_obj)?;
 
     // Replace #table_name parameters with direct table name values from request_params_obj
-    for cap in TABLE_NAME_REGEX.captures_iter(&prepared_sql.clone()) {
+    for cap in parameters::TABLE_NAME_REGEX.captures_iter(&prepared_sql.clone()) {
         if let Some(param_name_match) = cap.get(1) {
             let param_name = param_name_match.as_str();
 
@@ -268,16 +265,53 @@ fn prepare_single_statement(
             let table_name_str = table_name_value.as_str().unwrap();
             // Validate as identifier
             let valid_ident = quote_identifier(table_name_str);
-            prepared_sql = TABLE_NAME_REGEX
+            prepared_sql = parameters::TABLE_NAME_REGEX
                 .replace(&prepared_sql, valid_ident)
                 .to_string();
         }
     }
 
+    // Replace :[list] parameters with expanded named parameters (:list_0, :list_1, etc.)
+    for cap in parameters::LIST_PARAMETER_REGEX.captures_iter(&prepared_sql.clone()) {
+        if let Some(_param_match) = cap.get(0) {
+            if let Some(param_name_match) = cap.get(1) {
+                let list_param_name = param_name_match.as_str();
+
+                // Get the list parameter value from request params
+                let list_value = request_params_obj.get(list_param_name).unwrap();
+                let list_array = list_value.as_array().unwrap();
+
+                if list_array.is_empty() {
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: "non-empty list".to_string(),
+                        got: "empty array".to_string(),
+                    });
+                }
+
+                // Create named placeholders and values
+                // Since ParameterConstraints::validate already validates the array type upstream,
+                // we can safely unwrap values here to avoid redundant type checking calculations
+                let mut placeholders = Vec::new();
+                for (i, item) in list_array.iter().enumerate() {
+                    let param_key = format!(":{list_param_name}_{i}");
+                    placeholders.push(param_key.clone());
+
+                    let to_sql: Box<dyn rusqlite::ToSql> = json_value_to_sql(item);
+                    named_params.push((param_key, to_sql));
+                }
+
+                // Replace the :[param] with (:param_0, :param_1, ...)
+                let placeholder_str = placeholders.join(", ");
+                prepared_sql = parameters::LIST_PARAMETER_REGEX
+                    .replace(&prepared_sql, format!("({placeholder_str})"))
+                    .to_string();
+            }
+        }
+    }
+
     Ok(PreparedStatement {
         sql: prepared_sql,
-        param_positions,
-        param_values: request_param_values,
+        named_params,
     })
 }
 
@@ -287,22 +321,127 @@ fn execute_single_statement(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<()> {
-    let prepared =
-        prepare_single_statement(statement_sql, all_parameters, request_params_obj, &|idx| {
-            format!("?{idx}")
-        })?;
+) -> Result<String> {
+    let prepared = prepare_single_statement(statement_sql, all_parameters, request_params_obj)?;
+    let named_params = prepared.as_named_params();
 
-    // Collect the parameter values for this statement in the correct order
-    let statement_params: Vec<&Box<dyn rusqlite::ToSql>> = prepared
-        .param_positions
-        .iter()
-        .map(|&idx| &prepared.param_values[idx])
-        .collect();
-
-    // Now execute with the correct parameter values for this statement
+    // Now execute with the named parameter values
     let mut stmt = tx.prepare(&prepared.sql)?;
-    stmt.execute(rusqlite::params_from_iter(statement_params))
+    stmt.execute(&named_params[..])
         .map_err(JankenError::Sqlite)?;
-    Ok(())
+    Ok(prepared.sql)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_json_value_to_sql() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        // Test String
+        let string_result = json_value_to_sql(&serde_json::Value::String("hello".to_string()));
+        let val: String = conn
+            .query_row("SELECT ?", [string_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, "hello");
+
+        // Test Integer (i64)
+        let int_result =
+            json_value_to_sql(&serde_json::Value::Number(serde_json::Number::from(42)));
+        let val: i64 = conn
+            .query_row("SELECT ?", [int_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, 42);
+
+        // Test Float (f64)
+        let float_result = json_value_to_sql(&serde_json::Value::Number(
+            serde_json::Number::from_f64(1.23).unwrap(),
+        ));
+        let val: f64 = conn
+            .query_row("SELECT ?", [float_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert!(val > 1.22 && val < 1.24);
+
+        // Test Boolean (true -> 1)
+        let bool_result = json_value_to_sql(&serde_json::Value::Bool(true));
+        let val: i32 = conn
+            .query_row("SELECT ?", [bool_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, 1);
+
+        // Test Boolean (false -> 0)
+        let bool_result = json_value_to_sql(&serde_json::Value::Bool(false));
+        let val: i32 = conn
+            .query_row("SELECT ?", [bool_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, 0);
+
+        // Test Null
+        let null_result = json_value_to_sql(&serde_json::Value::Null);
+        let is_null: i32 = conn
+            .query_row("SELECT ? IS NULL", [null_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(is_null, 1);
+
+        // Test Array (string representation)
+        let array_result = json_value_to_sql(&serde_json::Value::Array(vec![
+            serde_json::Value::Number(1.into()),
+            serde_json::Value::String("test".to_string()),
+        ]));
+        let val: String = conn
+            .query_row("SELECT ?", [array_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, "[Number(1), String(\"test\")]");
+
+        // Test Object (string representation)
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "key".to_string(),
+            serde_json::Value::String("value".to_string()),
+        );
+        let obj_result = json_value_to_sql(&serde_json::Value::Object(obj));
+        let val: String = conn
+            .query_row("SELECT ?", [obj_result.as_ref()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(val, "{\"key\": String(\"value\")}");
+    }
+
+    #[test]
+    fn test_prepare_statement_parameters_edge_cases() {
+        // Test edge cases to cover parameter type conversion functions
+        // These represent "practically impossible" cases but needed for 100% test coverage
+
+        // Test parameter_value_to_sql with actual SQL execution
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        // Test List type conversion (should return empty string placeholder)
+        let list_result = parameter_value_to_sql(
+            &serde_json::Value::Array(vec![serde_json::Value::String("test".to_string())]),
+            &ParameterType::List,
+        );
+        let list_count: i32 = conn
+            .query_row("SELECT ? = ''", [list_result.as_ref()], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            list_count, 1,
+            "List type should return empty string placeholder"
+        );
+
+        // Test TableName type conversion (should preserve the string)
+        let table_result = parameter_value_to_sql(
+            &serde_json::Value::String("my_table".to_string()),
+            &ParameterType::TableName,
+        );
+        let table_count: i32 = conn
+            .query_row("SELECT ? = 'my_table'", [table_result.as_ref()], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            table_count, 1,
+            "TableName type should preserve the string value"
+        );
+    }
 }
