@@ -137,21 +137,23 @@ let queries = QueryDefinitions::from_json(json)?;
 let sqlite_conn = DatabaseConnection::SQLite(Connection::open_in_memory()?);
 let mut conn = DatabaseConnection::SQLite(conn);
 
-// Get user by ID
+// Get user by ID (returns QueryResult with JSON data and SQL execution details)
 let params = serde_json::json!({"user_id": 42});
-let result = conn.query_run(&queries, "get_user", &params)?;
+let query_result = conn.query_run(&queries, "get_user", &params)?;
+// Access JSON results: query_result.result
+// Access executed SQL statements: query_result.sql_statements (for debugging)
 
 // Create new user
 let params = serde_json::json!({"name": "Alice", "email": "alice@example.com"});
-let result = conn.query_run(&queries, "create_user", &params)?;
+let query_result = conn.query_run(&queries, "create_user", &params)?;
 
 // Query from dynamic table
 let params = serde_json::json!({"source": "accounts", "id": 1, "name": "John"});
-let result = conn.query_run(&queries, "query_from_table", &params)?;
+let query_result = conn.query_run(&queries, "query_from_table", &params)?;
 
 // Insert into dynamic table
 let params = serde_json::json!({"dest_table": "users", "name": "Bob"});
-let result = conn.query_run(&queries, "insert_into_dynamic_table", &params)?;
+let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params)?;
 ```
 
 ### 4. Parameter Types and Constraints Supported

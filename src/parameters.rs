@@ -6,9 +6,9 @@ use regex::Regex;
 use std::str::FromStr;
 
 // Regex compiled once as a lazy static for performance
-static PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
+pub static PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r"@(\w+)").unwrap());
-static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
+pub static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r"#(\w+)").unwrap());
 
 /// Parameter type enums for database operations
@@ -52,6 +52,13 @@ impl std::fmt::Display for ParameterType {
     }
 }
 
+fn constraint_mismatch_error(param_type: &ParameterType, value: &serde_json::Value) -> JankenError {
+    JankenError::ParameterTypeMismatch {
+        expected: param_type.to_string(),
+        got: value.to_string(),
+    }
+}
+
 /// Parameter constraints for validation
 #[derive(Debug, Clone, Default)]
 pub struct ParameterConstraints {
@@ -63,24 +70,49 @@ pub struct ParameterConstraints {
 impl ParameterConstraints {
     /// Validate a parameter value against these constraints
     pub fn validate(&self, value: &serde_json::Value, param_type: &ParameterType) -> Result<()> {
+        // Basic type validation first
+        match param_type {
+            ParameterType::String => {
+                if !value.is_string() {
+                    return Err(constraint_mismatch_error(param_type, value));
+                }
+            }
+            ParameterType::Integer => {
+                if !value.is_number() || value.as_number().unwrap().as_i64().is_none() {
+                    return Err(constraint_mismatch_error(param_type, value));
+                }
+            }
+            ParameterType::Float => {
+                if !value.is_number() || value.as_number().unwrap().as_f64().is_none() {
+                    return Err(constraint_mismatch_error(param_type, value));
+                }
+            }
+            ParameterType::Boolean => {
+                if !value.is_boolean() {
+                    return Err(constraint_mismatch_error(param_type, value));
+                }
+            }
+            ParameterType::TableName => {
+                if !value.is_string() {
+                    return Err(constraint_mismatch_error(param_type, value));
+                }
+            }
+        }
+
+        // Check that range is only specified for numeric types
+        if self.range.is_some()
+            && !matches!(param_type, ParameterType::Integer | ParameterType::Float)
+        {
+            return Err(JankenError::ParameterTypeMismatch {
+                expected: "numeric type".to_string(),
+                got: param_type.to_string(),
+            });
+        }
+
         // Check range for numeric types
         if let Some(range) = &self.range {
-            let num_val =
-                if param_type.to_string() == "integer" || param_type.to_string() == "float" {
-                    if let Some(num) = value.as_f64() {
-                        num
-                    } else {
-                        return Err(JankenError::ParameterTypeMismatch {
-                            expected: "number (integer/float)".to_string(),
-                            got: value.to_string(),
-                        });
-                    }
-                } else {
-                    return Err(JankenError::ParameterTypeMismatch {
-                        expected: "numeric type".to_string(),
-                        got: format!("{param_type:?}").to_lowercase(),
-                    });
-                };
+            // Validated upfront that param_type is Integer or Float, so value is number
+            let num_val = value.as_f64().unwrap();
 
             if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
                 if num_val < min || num_val > max {
@@ -130,22 +162,16 @@ impl ParameterConstraints {
         }
 
         if param_type == &ParameterType::TableName {
-            if let Some(table_name_str) = value.as_str() {
-                if table_name_str.is_empty()
-                    || !table_name_str
-                        .chars()
-                        .all(|c| c.is_alphanumeric() || c == '_')
-                {
-                    return Err(JankenError::ParameterTypeMismatch {
-                        expected: "valid table name (alphanumeric and underscores only)"
-                            .to_string(),
-                        got: table_name_str.to_string(),
-                    });
-                }
-            } else {
+            // value cannot be a non-string here since basic type validation has been done
+            let table_name_str = value.as_str().unwrap();
+            if table_name_str.is_empty()
+                || !table_name_str
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_')
+            {
                 return Err(JankenError::ParameterTypeMismatch {
-                    expected: "string (table_name)".to_string(),
-                    got: value.to_string(),
+                    expected: "valid table name (alphanumeric and underscores only)".to_string(),
+                    got: table_name_str.to_string(),
                 });
             }
         }
@@ -208,7 +234,7 @@ pub fn extract_parameters_in_statement(statement: &str) -> Vec<String> {
 
 /// Helper function to extract unique parameter names with regex, respecting quotes
 /// Returns in order of first appearance in the SQL
-fn extract_parameters_with_regex(statement: &str, regex: &Regex) -> Vec<String> {
+pub fn extract_parameters_with_regex(statement: &str, regex: &Regex) -> Vec<String> {
     let mut params = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -234,22 +260,4 @@ pub fn contains_transaction_keywords(sql: &str) -> bool {
         || upper_sql.contains("ROLLBACK")
         || upper_sql.contains("START TRANSACTION")
         || upper_sql.contains("END TRANSACTION")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parameter_type_display_table_name() {
-        // Test that ParameterType::TableName displays correctly
-        // Since TableName is auto-detected and not set directly by users,
-        // we need a simple test to cover this display path
-        let param = Parameter {
-            name: "test_table".to_string(),
-            param_type: ParameterType::TableName,
-            constraints: ParameterConstraints::default(),
-        };
-        assert_eq!(param.param_type.to_string(), "table_name");
-    }
 }

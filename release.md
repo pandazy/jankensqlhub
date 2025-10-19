@@ -1,54 +1,42 @@
 # Release Notes v0.4.0
 
-## Major Feature Addition
-- **Optional parameter arguments** - `@param` can now be used without explicit `args` specification in query definitions
-- Unspecified `@param` automatically defaults to string type with no constraints for cleaner APIs
-- Simplifies query definitions by reducing boilerplate for string parameters
-- Maintains full backward compatibility - existing `args` specifications continue to work unchanged
+## ⚠️ **Breaking API Change**
 
-## Examples
+### QueryResult Structure Enhancement
+- `query_run()` methods now return `QueryResult` struct instead of `Vec<serde_json::Value>`
+- `QueryResult` contains both JSON results and executed SQL statements for debugging
+- **Breaking**: Access JSON data via `.data` field, SQL statements via `.sql_statements`
 
-### Traditional Syntax (still supported)
-```json
-{
-  "find_user": {
-    "query": "SELECT * FROM users WHERE name=@username",
-    "args": {
-      "username": {"type": "string"}
-    }
-  }
+## Before (v0.3.x)
+```rust
+let result: Vec<serde_json::Value> = conn.query_run(&queries, "my_query", &params)?;
+for item in result {
+    println!("Data: {:?}", item);
 }
 ```
 
-### New Simplified Syntax
-```json
-{
-  "find_user": {
-    "query": "SELECT * FROM users WHERE name=@username"
-    // No args needed - @username defaults to string type
-  }
+## After (v0.4.0)
+```rust
+let query_result: QueryResult = conn.query_run(&queries, "my_query", &params)?;
+for item in &query_result.data {
+    println!("Data: {:?}", item);
 }
-```
-
-### Mixed Usage
-```json
-{
-  "complex_query": {
-    "query": "SELECT * FROM #table WHERE id=@id AND status=@status",
-    "args": {
-      "id": {"type": "integer"},
-      "table": {"enum": ["users", "orders"]}
-      // @status not specified, defaults to string type
-    }
-  }
+// New debugging feature
+for sql in &query_result.sql_statements {
+    println!("Executed SQL: {}", sql);
 }
 ```
 
 ## Migration Notes
-- Existing query definitions require no changes - fully backward compatible
-- New query definitions can be simplified by omitting `args` for string parameters
-- Table name parameters (`#table`) still require `args` for constraint validation
-- No performance impact on queries with explicit args
+- Change all `let result` declarations to `let query_result`
+- Update all direct vector operations to use `.data` field:
+  - `result.len()` → `query_result.data.len()`
+  - `result.iter()` → `query_result.data.iter()`
+  - `result[0]` → `query_result.data[0]`
+  - etc.
+- **New Benefit**: Access executed SQL statements via `query_result.sql_statements` for debugging
+- Existing query definitions and JSON responses remain unchanged
+- All parameter validation and SQL injection protection features preserved
 
 ---
-**Version 0.4.0** - Streamlined parameter syntax with automatic string defaults
+**Version 0.4.0** - Enhanced query result structure with SQL statement debugging support

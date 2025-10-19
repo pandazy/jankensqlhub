@@ -23,6 +23,7 @@ After running `cargo test` to verify functionality, always execute:
 - We should always assert exact value, avoid using vague assertion such as 'option.is_some' or 'result.is_ok', for success cases we always expect deterministic results
 
 ## Code Quality Standards
+- Apply Occam's Razor, trying to be minimalist
 - Follow Rust API design principles and idioms
 - Prefer explicit error handling over panics
 - Use meaningful names for functions, variables, and types
@@ -54,7 +55,7 @@ After running `cargo test` to verify functionality, always execute:
 | **`query.rs`** | Query definition creation with parameter defaults and table name support | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
 | **`runner.rs`** | Execution mechanics with dynamic table replacement | `query_run_sqlite()`, `execute_query_unified()`,`prepare_single_statement()` |
 | **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
-| **`result.rs`** | Error handling | `JankenError` enum |
+| **`result.rs`** | Query result structures and error types | `QueryResult`, `JankenError` enum |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management

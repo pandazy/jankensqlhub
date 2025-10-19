@@ -9,7 +9,7 @@ pub mod str_utils;
 pub use connection::DatabaseConnection;
 pub use parameters::{Parameter, ParameterType};
 pub use query::{QueryDef, QueryDefinitions};
-pub use result::{JankenError, Result};
+pub use result::{JankenError, QueryResult, Result};
 pub use runner::{QueryRunner, query_run_sqlite};
 
 // Re-export third-party types used in the public API to provide fallback for dependency conflicts

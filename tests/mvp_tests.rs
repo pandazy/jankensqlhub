@@ -25,9 +25,17 @@ fn test_sqlite_select_all_no_params() {
 
     let params = serde_json::json!({});
     let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
-    assert_eq!(result.len(), 2);
-    assert!(result.contains(&serde_json::json!({"id": 1, "name": "John", "score": null})));
-    assert!(result.contains(&serde_json::json!({"id": 2, "name": "Jane", "score": null})));
+    assert_eq!(result.data.len(), 2);
+    assert!(
+        result
+            .data
+            .contains(&serde_json::json!({"id": 1, "name": "John", "score": null}))
+    );
+    assert!(
+        result
+            .data
+            .contains(&serde_json::json!({"id": 2, "name": "Jane", "score": null}))
+    );
 }
 
 #[test]
@@ -40,13 +48,13 @@ fn test_sqlite_insert_with_params() {
     let insert_result = db_conn
         .query_run(&queries, "insert_single", &params)
         .unwrap();
-    assert!(insert_result.is_empty());
+    assert!(insert_result.data.is_empty());
 
     let params = serde_json::json!({});
     let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
-    assert_eq!(result.len(), 1);
+    assert_eq!(result.data.len(), 1);
     assert_eq!(
-        result[0],
+        result.data[0],
         serde_json::json!({"id": 1, "name": "NewGuy", "score": null})
     );
 }
@@ -69,7 +77,7 @@ fn test_sqlite_update_with_params() {
     let params = serde_json::json!({"id": 10, "name": "NewJohn", "source": "source"});
     let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
     assert_eq!(
-        result,
+        result.data,
         vec![serde_json::json!({"id": 10, "name": "NewJohn"})]
     );
 }
@@ -100,11 +108,14 @@ fn test_sqlite_blob_column_type() {
     let params = serde_json::json!({});
     let result = db_conn.query_run(&queries, "select_blob", &params).unwrap();
 
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0].get("id"), Some(&serde_json::json!(1)));
-    assert_eq!(result[0].get("data"), Some(&serde_json::json!([1, 2, 3])));
-    assert_eq!(result[1].get("id"), Some(&serde_json::json!(2)));
-    assert_eq!(result[1].get("data"), Some(&serde_json::json!(null)));
+    assert_eq!(result.data.len(), 2);
+    assert_eq!(result.data[0].get("id"), Some(&serde_json::json!(1)));
+    assert_eq!(
+        result.data[0].get("data"),
+        Some(&serde_json::json!([1, 2, 3]))
+    );
+    assert_eq!(result.data[1].get("id"), Some(&serde_json::json!(2)));
+    assert_eq!(result.data[1].get("data"), Some(&serde_json::json!(null)));
 }
 
 #[test]
@@ -142,7 +153,7 @@ fn test_boolean_params() {
     let insert_result = db_conn
         .query_run(&queries, "insert_with_bool", &params)
         .unwrap();
-    assert!(insert_result.is_empty());
+    assert!(insert_result.data.is_empty());
 
     let params = serde_json::json!({"id": 4, "name": "user4", "active": false});
     db_conn
@@ -154,9 +165,17 @@ fn test_boolean_params() {
         .query_run(&queries, "select_by_bool", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 2);
-    assert!(result.contains(&serde_json::json!({"id": 1, "name": "active", "score": 1.0})));
-    assert!(result.contains(&serde_json::json!({"id": 3, "name": "user3", "score": 1.0})));
+    assert_eq!(result.data.len(), 2);
+    assert!(
+        result
+            .data
+            .contains(&serde_json::json!({"id": 1, "name": "active", "score": 1.0}))
+    );
+    assert!(
+        result
+            .data
+            .contains(&serde_json::json!({"id": 3, "name": "user3", "score": 1.0}))
+    );
 }
 
 #[test]
@@ -187,21 +206,21 @@ fn test_loading_from_json_value() {
 
     let params = serde_json::json!({"id": 42});
     let result = db_conn.query_run(&queries, "test_select", &params).unwrap();
-    assert!(!result.is_empty());
+    assert!(!result.data.is_empty());
     assert_eq!(
-        result[0],
+        result.data[0],
         serde_json::json!({"id": 42, "name": "Test", "score": null})
     );
 
     let params = serde_json::json!({"id": 99, "name": "JsonLoaded"});
     let insert_result = db_conn.query_run(&queries, "test_insert", &params).unwrap();
-    assert!(insert_result.is_empty());
+    assert!(insert_result.data.is_empty());
 
     let params = serde_json::json!({"id": 99});
     let result = db_conn.query_run(&queries, "test_select", &params).unwrap();
-    assert!(!result.is_empty());
+    assert!(!result.data.is_empty());
     assert_eq!(
-        result[0],
+        result.data[0],
         serde_json::json!({"id": 99, "name": "JsonLoaded", "score": null})
     );
 }
@@ -232,8 +251,38 @@ fn test_sqlite_float_params() {
         .unwrap();
 
     // Should return both Bob (id=3) and Jane (id=2) as structured objects
-    assert_eq!(result.len(), 2);
+    assert_eq!(result.data.len(), 2);
     // Check that we got the expected structured data for Bob and Jane
-    assert!(result.contains(&serde_json::json!({"id": 2, "name": "Jane"}))); // Jane with score 8.2
-    assert!(result.contains(&serde_json::json!({"id": 3, "name": "Bob"}))); // Bob with score 7.0
+    assert!(
+        result
+            .data
+            .contains(&serde_json::json!({"id": 2, "name": "Jane"}))
+    ); // Jane with score 8.2
+    assert!(
+        result
+            .data
+            .contains(&serde_json::json!({"id": 3, "name": "Bob"}))
+    ); // Bob with score 7.0
+}
+
+#[test]
+fn test_debug_sql_statements() {
+    let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
+    let conn = setup_db();
+    conn.execute("INSERT INTO source VALUES (1, 'TestUser', NULL)", [])
+        .unwrap();
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    // Test a simple select query to see the SQL statement
+    let params = serde_json::json!({});
+    let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
+
+    // Check that the SQL statement is as expected (lowercase select)
+    assert!(
+        result
+            .sql_statements
+            .iter()
+            .any(|s| s.contains("select * from source"))
+    );
+    assert!(result.sql_statements[0] == "select * from source");
 }

@@ -190,7 +190,7 @@ fn test_parameter_validation_range_non_numeric() {
             .unwrap_err();
         match err {
             JankenError::ParameterTypeMismatch { expected, got } => {
-                assert_eq!(expected, "number (integer/float)");
+                assert_eq!(expected, "integer");
                 assert_eq!(got, expected_got);
             }
             _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
@@ -621,7 +621,6 @@ fn test_table_name_parameter_security_and_validation() {
             "query": "SELECT * FROM #table_name WHERE id=@id",
             "returns": ["id", "name"],
             "args": {
-                "table_name": { "type": "table_name" },
                 "id": { "type": "integer" }
             }
         }
@@ -633,23 +632,28 @@ fn test_table_name_parameter_security_and_validation() {
     let type_mismatch_cases = vec![
         (
             serde_json::json!({"table_name": 123, "id": 1}),
-            "string (table_name)",
+            "table_name",
             "123",
         ),
         (
             serde_json::json!({"table_name": true, "id": 1}),
-            "string (table_name)",
+            "table_name",
             "true",
         ),
         (
             serde_json::json!({"table_name": null, "id": 1}),
-            "string (table_name)",
+            "table_name",
             "null",
         ),
         (
             serde_json::json!({"table_name": ["table"], "id": 1}),
-            "string (table_name)",
+            "table_name",
             "[\"table\"]",
+        ),
+        (
+            serde_json::json!({"table_name": {"nested": "value"}, "id": 1}),
+            "table_name",
+            "{\"nested\":\"value\"}",
         ),
     ];
 
@@ -714,8 +718,8 @@ fn test_table_name_parameter_security_and_validation() {
     );
 
     let data = result.unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0], serde_json::json!({"id": 1, "name": "safe"}));
+    assert_eq!(data.data.len(), 1);
+    assert_eq!(data.data[0], serde_json::json!({"id": 1, "name": "safe"}));
 }
 
 #[test]
@@ -1012,8 +1016,8 @@ fn test_table_name_validation_error() {
     let result = db_conn.query_run(&queries, "table_query", &params);
     assert!(result.is_ok(), "Valid table name should work");
     let data = result.unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0], serde_json::json!({"id": 42}));
+    assert_eq!(data.data.len(), 1);
+    assert_eq!(data.data[0], serde_json::json!({"id": 42}));
 }
 
 #[test]
@@ -1155,7 +1159,7 @@ fn test_sqlite_type_mismatch_errors() {
     let err = result.unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "string (table_name)");
+            assert_eq!(expected, "table_name");
             assert_eq!(got, "123");
         }
         _ => panic!("Expected ParameterTypeMismatch for table_name parameter, got: {err:?}"),

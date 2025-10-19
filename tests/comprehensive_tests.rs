@@ -25,14 +25,15 @@ fn test_multi_statement_transaction_fixed_transfer() {
     let params = serde_json::json!({});
     let result = db_conn.query_run(&queries, "multi_statement_transfer", &params);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.unwrap().data.is_empty());
 
     let accounts = db_conn
         .query_run(&queries, "select_accounts", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts.data.len(), 2);
 
     let alice_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Alice"))
         .unwrap()
@@ -41,6 +42,7 @@ fn test_multi_statement_transaction_fixed_transfer() {
     assert_eq!(alice_balance, Some(900));
 
     let bob_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Bob"))
         .unwrap()
@@ -63,14 +65,85 @@ fn test_multi_statement_transaction_with_params() {
     let params = serde_json::json!({"from_name": "Alice", "to_name": "Bob", "initial_balance": 2000, "amount": 300});
     let result = db_conn.query_run(&queries, "multi_statement_transfer_with_params", &params);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    let result = result.unwrap();
+    assert!(result.data.is_empty());
+
+    // Verify that the SQL statements are properly transformed with named parameters
+    assert_eq!(
+        result.sql_statements.len(),
+        4,
+        "Should have 4 SQL statements"
+    );
+
+    // Check each statement contains the expected parts and named parameters instead of @param
+    assert!(
+        result.sql_statements[0].contains(
+            "INSERT INTO accounts2 (name, balance) VALUES (:from_name, :initial_balance)"
+        ),
+        "First statement should contain proper named parameters: {}",
+        &result.sql_statements[0]
+    );
+    assert!(
+        !result.sql_statements[0].contains("@from_name"),
+        "First statement still contains @param instead of :param"
+    );
+    assert!(
+        !result.sql_statements[0].contains("@initial_balance"),
+        "First statement still contains @param"
+    );
+
+    assert!(
+        result.sql_statements[1]
+            .contains("INSERT INTO accounts2 (name, balance) VALUES (:to_name, :initial_balance)"),
+        "Second statement should contain proper named parameters: {}",
+        &result.sql_statements[1]
+    );
+    assert!(
+        !result.sql_statements[1].contains("@to_name"),
+        "Second statement still contains @param"
+    );
+    assert!(
+        !result.sql_statements[1].contains("@initial_balance"),
+        "Second statement still contains @param"
+    );
+
+    assert!(
+        result.sql_statements[2]
+            .contains("UPDATE accounts2 SET balance = balance - :amount WHERE name = :from_name"),
+        "Third statement should contain proper named parameters: {}",
+        &result.sql_statements[2]
+    );
+    assert!(
+        !result.sql_statements[2].contains("@amount"),
+        "Third statement still contains @param"
+    );
+    assert!(
+        !result.sql_statements[2].contains("@from_name"),
+        "Third statement still contains @param"
+    );
+
+    assert!(
+        result.sql_statements[3]
+            .contains("UPDATE accounts2 SET balance = balance + :amount WHERE name = :to_name"),
+        "Fourth statement should contain proper named parameters: {}",
+        &result.sql_statements[3]
+    );
+    assert!(
+        !result.sql_statements[3].contains("@amount"),
+        "Fourth statement still contains @param"
+    );
+    assert!(
+        !result.sql_statements[3].contains("@to_name"),
+        "Fourth statement still contains @param"
+    );
 
     let accounts = db_conn
         .query_run(&queries, "select_accounts2", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts.data.len(), 2);
 
     let alice_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Alice"))
         .unwrap()
@@ -79,6 +152,7 @@ fn test_multi_statement_transaction_with_params() {
     assert_eq!(alice_balance, Some(1700));
 
     let bob_balance = accounts
+        .data
         .iter()
         .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("Bob"))
         .unwrap()
@@ -108,7 +182,7 @@ fn test_multi_statement_transaction_failure() {
     let accounts = db_conn
         .query_run(&queries, "select_accounts", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(accounts.len(), 0);
+    assert_eq!(accounts.data.len(), 0);
 }
 
 #[test]
@@ -127,6 +201,7 @@ fn test_sql_injection_protection_name_parameter() {
     let initial_count = db_conn
         .query_run(&queries, "select_all", &serde_json::json!({}))
         .unwrap()
+        .data
         .len();
 
     let params = serde_json::json!({"name": sql_injection_attempt});
@@ -136,12 +211,12 @@ fn test_sql_injection_protection_name_parameter() {
 
     let params = serde_json::json!({"id": 1, "name": "TestUser", "source": "source"});
     let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
-    assert!(!result.is_empty());
+    assert!(!result.data.is_empty());
 
     let final_result = db_conn
         .query_run(&queries, "select_all", &serde_json::json!({}))
         .unwrap();
-    assert_eq!(final_result.len(), initial_count + 1);
+    assert_eq!(final_result.data.len(), initial_count + 1);
 }
 
 #[test]
@@ -187,13 +262,13 @@ fn test_sql_injection_protection_safe_name_parameter() {
     let result = db_conn
         .query_run(&queries, "insert_with_params", &params)
         .unwrap();
-    assert!(result.is_empty());
+    assert!(result.data.is_empty());
 
     let params = serde_json::json!({"id": 100});
     let result = db_conn
         .query_run(&queries, "select_by_id", &params)
         .unwrap();
-    assert_eq!(result.len(), 1);
+    assert_eq!(result.data.len(), 1);
 }
 
 #[test]
@@ -274,12 +349,12 @@ fn test_multi_statement_no_params() {
     let insert_result = db_conn
         .query_run(&queries, "insert_multiple_fixed", &params)
         .unwrap();
-    assert!(insert_result.is_empty());
+    assert!(insert_result.data.is_empty());
 
     let result = db_conn
         .query_run(&queries, "select_multiple", &params)
         .unwrap();
-    assert_eq!(result.len(), 2);
+    assert_eq!(result.data.len(), 2);
 }
 
 #[test]
@@ -315,8 +390,8 @@ fn test_sqlite_row_error_handling() {
         .query_run(&queries, "select_wide_with_types", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 1);
-    let obj = &result[0];
+    assert_eq!(result.data.len(), 1);
+    let obj = &result.data[0];
 
     assert_eq!(obj.get("a"), Some(&serde_json::json!(1))); // Integer
     assert_eq!(obj.get("b"), Some(&serde_json::json!(3.145))); // Real/Float
@@ -356,10 +431,10 @@ fn test_sqlite_real_nan_handling() {
         .query_run(&queries, "select_float", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 2);
+    assert_eq!(result.data.len(), 2);
     // Check exact response values
-    assert_eq!(result[0], serde_json::json!({"value": null})); // Infinity -> null
-    assert_eq!(result[1], serde_json::json!({"value": "invalid"}));
+    assert_eq!(result.data[0], serde_json::json!({"value": null})); // Infinity -> null
+    assert_eq!(result.data[1], serde_json::json!({"value": "invalid"}));
 }
 
 #[test]
@@ -407,9 +482,9 @@ fn test_multi_table_name_parameters() {
         .query_run(&queries, "multi_table_test", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 1);
+    assert_eq!(result.data.len(), 1);
     assert_eq!(
-        result[0],
+        result.data[0],
         serde_json::json!({"id1": 1, "name1": "Alice", "id2": 2, "name2": "Bob", "id3": 3, "name3": "Charlie"})
     );
 }
@@ -459,7 +534,7 @@ fn test_multi_statement_table_name_parameters() {
     let transfer_result = db_conn
         .query_run(&queries, "multi_statement_table_transfer", &params)
         .unwrap();
-    assert!(transfer_result.is_empty());
+    assert!(transfer_result.data.is_empty());
 
     // Verify the data was transferred and modified
     let params = serde_json::json!({"dest_table": "dest_table"});
@@ -467,7 +542,10 @@ fn test_multi_statement_table_name_parameters() {
         .query_run(&queries, "select_dest_table", &params)
         .unwrap();
 
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0], serde_json::json!({"id": 1, "name": "ALICE"}));
-    assert_eq!(result[1], serde_json::json!({"id": 2, "name": "BOB"}));
+    assert_eq!(result.data.len(), 2);
+    assert_eq!(
+        result.data[0],
+        serde_json::json!({"id": 1, "name": "ALICE"})
+    );
+    assert_eq!(result.data[1], serde_json::json!({"id": 2, "name": "BOB"}));
 }

@@ -1,0 +1,8 @@
+{
+  "read": {
+    "query": "select * from #table where id in :[targets]",
+    "args": {
+      "targets": { "type" : "integer", "pattern": "\\w" }
+    }
+  }
+}
