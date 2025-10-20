@@ -123,7 +123,7 @@ impl ParameterConstraints {
                 }
             } else {
                 return Err(JankenError::ParameterTypeMismatch {
-                    expected: crate::ParameterType::String.to_string().to_lowercase(),
+                    expected: ParameterType::String.to_string(),
                     got: value.to_string(),
                 });
             }
@@ -205,10 +205,36 @@ pub fn parse_constraints(
     arg_def: &serde_json::Value,
 ) -> Result<()> {
     if let Some(range_val) = arg_def.get("range") {
-        if let Some(range_array) = range_val.as_array() {
-            let range: Vec<f64> = range_array.iter().filter_map(|v| v.as_f64()).collect();
-            constraints.range = Some(range);
-        }
+        let expected_content = "array with exactly 2 numbers for range constraint";
+        let range_array = match range_val.as_array() {
+            Some(arr) if arr.len() == 2 => arr,
+            Some(arr) => {
+                return Err(JankenError::ParameterTypeMismatch {
+                    expected: expected_content.to_string(),
+                    got: format!("array with {} elements", arr.len()),
+                });
+            }
+            None => {
+                return Err(JankenError::ParameterTypeMismatch {
+                    expected: expected_content.to_string(),
+                    got: format!("{range_val} (not an array)"),
+                });
+            }
+        };
+
+        let range: Vec<f64> = range_array
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                v.as_f64()
+                    .ok_or_else(|| JankenError::ParameterTypeMismatch {
+                        expected: "number".to_string(),
+                        got: format!("{v} at index {i}"),
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        constraints.range = Some(range);
     }
 
     if let Some(pattern_val) = arg_def.get("pattern") {
