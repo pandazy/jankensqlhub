@@ -1,55 +1,36 @@
-# Release Notes v0.4.0
+# Release Notes v0.4.1
 
-## ⚠️ **Breaking API Change**
+## ✨ **Improved Parameter Validation**
 
-### QueryResult Structure Enhancement
-- `query_run()` methods now return `QueryResult` struct instead of `Vec<serde_json::Value>`
-- `QueryResult` contains both JSON results and executed SQL statements for debugging
-- **Breaking**: Access JSON data via `.data` field, SQL statements via `.sql_statements`
+### Range Constraint Definition-Time Validation
+- Range constraints now validated at query definition time (during `QueryDefinitions::from_json()`)
+- Range must be an array with exactly 2 numbers: `[min, max]`
+- Non-array values, arrays with wrong element counts, or non-numeric elements are rejected early
+- Provides clearer error messages and prevents runtime failures from malformed range definitions
 
-## ✨ **New Features**
+**Before (v0.4.0)**: Invalid range definitions would be accepted and fail at runtime
+**After (v0.4.1)**: Invalid range definitions are caught during query parsing with helpful error messages
 
-### List Parameters Support
-- New parameter syntax `:[list_name]` for IN clauses and array operations
-- Example: `SELECT * FROM users WHERE id IN :[user_ids]`
-- Automatic type assignment to "list" with optional item type validation
-- Use `{"itemtype": "integer"}` in args to specify list item types
+### Examples of Improved Validation
 
-### Default Parameter Types
-- `@parameter` placeholders now default to "string" type when no args specified
-- No longer requires explicit type specification for string parameters
-- Reduces configuration verbosity for common string parameters
-
-## Before (v0.3.x)
 ```rust
-let result: Vec<serde_json::Value> = conn.query_run(&queries, "my_query", &params)?;
-for item in result {
-    println!("Data: {:?}", item);
-}
+// ✅ Valid range definitions accepted
+{"range": [1, 100]}              // integer range
+{"range": [0.0, 1000.0]}         // float range
+
+// ❌ Invalid range definitions now rejected at definition time
+{"range": "not_an_array"}        // Error: not an array
+{"range": [1]}                   // Error: array with 1 element (needs 2)
+{"range": [1, 2, 3]}             // Error: array with 3 elements (needs exactly 2)
+{"range": ["min", "max"]}        // Error: non-numeric elements
 ```
 
-## After (v0.4.0)
-```rust
-let query_result: QueryResult = conn.query_run(&queries, "my_query", &params)?;
-for item in &query_result.data {
-    println!("Data: {:?}", item);
-}
-// New debugging feature
-for sql in &query_result.sql_statements {
-    println!("Executed SQL: {}", sql);
-}
-```
+## 🐛 **Bug Fixes**
 
-## Migration Notes
-- Change all `let result` declarations to `let query_result`
-- Update all direct vector operations to use `.data` field:
-  - `result.len()` → `query_result.data.len()`
-  - `result.iter()` → `query_result.data.iter()`
-  - `result[0]` → `query_result.data[0]`
-  - etc.
-- **New Benefit**: Access executed SQL statements via `query_result.sql_statements` for debugging
-- Existing query definitions and JSON responses remain unchanged
-- All parameter validation and SQL injection protection features preserved
+### Enhanced Error Messages
+- More specific error messages for range constraint definition errors
+- Distinguishes between different types of range validation failures
+- Maintains consistency with existing parameter validation error patterns
 
 ---
-**Version 0.4.0** - Enhanced query result structure with SQL statement debugging, list parameters, and default type assignment
+**Version 0.4.1** - Enhanced parameter validation with definition-time range constraint checking
