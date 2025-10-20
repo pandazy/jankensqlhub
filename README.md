@@ -10,7 +10,7 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 - ✅ **Parameterizable SQL Templates** - `@param_name` syntax in queries, types defined separately
 - ✅ **Dynamic Table Names** - `#table_name` syntax for parameterizable table names
 - ✅ **List Parameter Support** - :[list_param] syntax for IN clauses with item type validation
-- ✅ **Multi-Database Support** - SQLite (?1,?2), PostgreSQL planned for future releases
+- ✅ **Web API Integration** - Server-side query adapter mapping JSON requests to prepared statements
 - ✅ **SQL Injection Protection** - Automatic prepared statement generation
 - ✅ **Type Safety & Validation** - Parameter type validation with constraints (range, pattern, enum, table name validation)
 - ✅ **Parameter Constraints** - Range limits, regex patterns, enumerated values, and table name validation
@@ -36,19 +36,25 @@ SELECT * FROM users WHERE id IN :[user_ids] AND status IN :[statuses]
 SELECT * FROM users WHERE name='@literal_text'
 ```
 
-### Multi-Database Support 🚧 Under Construction
+### Architecture Design Principles
 
-The library is designed for future multi-database support with automatic prepared statement generation:
+**Janken SQL Hub** serves as a **server-side query adapter**, bridging the gap between web API endpoints and database operations:
+
+- **QueryDef**: Pre-defined, validated SQL queries stored on the server
+- **query_run()**: Web request handler that maps JSON parameters to prepared statements
+- **Security First**: Query templates prevent SQL injection while retaining SQL's efficiency
+- **No ORM Abstraction**: Direct SQL usage avoids inefficient query builders and ORMs
 
 ```rust
-// Single query definition automatically generates both formats
-let args = serde_json::json!({"id": {"type": "integer"}});
-let query = QueryDef::from_sql("SELECT * FROM users WHERE id=@id", Some(&args))?;
-// SQLite:   SELECT * FROM users WHERE id=?1
-// PostgreSQL: SELECT * FROM users WHERE id=$1 (planned)
-```
+// Web API Workflow:
+// 1. Client sends JSON payload: {"user_id": 123}
+// 2. Server uses query_name (not SQL) to identify predefined query
+// 3. Parameters are validated and injected into prepared statement
+// 4. Result returned as JSON
 
-**Current Status**: SQLite fully supported. PostgreSQL implementation is planned for future releases.
+let params = serde_json::json!({"user_id": 123, "status": "active"});
+let result = conn.query_run(&queries, "find_user", &params)?;
+```
 
 ## 🚀 Usage Guide
 
