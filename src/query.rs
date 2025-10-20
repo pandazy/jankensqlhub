@@ -1,6 +1,7 @@
 use crate::{
     ParameterType,
-    parameters::Parameter,
+    parameter_constraints::parse_constraints,
+    parameters::{self, Parameter},
     result::{JankenError, Result},
 };
 use serde_json;
@@ -24,7 +25,7 @@ impl QueryDef {
     ) -> Result<Self> {
         Self::check_transaction_keywords(sql)?;
 
-        let mut parameters = crate::parameters::parse_parameters_with_quotes(sql)?;
+        let mut parameters = parameters::parse_parameters_with_quotes(sql)?;
         // Create augmented args with defaults for @params not specified in input args
         let augmented_args = Self::create_augmented_args(&parameters, args);
 
@@ -40,7 +41,7 @@ impl QueryDef {
     }
 
     fn check_transaction_keywords(sql: &str) -> Result<()> {
-        if crate::parameters::contains_transaction_keywords(sql) {
+        if parameters::contains_transaction_keywords(sql) {
             Err(JankenError::ParameterTypeMismatch {
                 expected: "SQL without explicit transaction keywords".to_string(),
                 got:
@@ -80,9 +81,7 @@ impl QueryDef {
         param: &mut Parameter,
         args: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
-        if param.param_type == crate::parameters::ParameterType::TableName
-            || param.param_type == crate::parameters::ParameterType::List
-        {
+        if param.param_type == ParameterType::TableName || param.param_type == ParameterType::List {
             Self::process_automatic_parameter(param, args)?;
         } else {
             Self::process_regular_parameter(param, args)?;
@@ -95,7 +94,7 @@ impl QueryDef {
         args: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
         if let Some(arg_def) = args.get(&param.name) {
-            Self::parse_constraints(&mut param.constraints, arg_def)?;
+            parse_constraints(&mut param.constraints, arg_def)?;
         }
         Ok(())
     }
@@ -107,7 +106,7 @@ impl QueryDef {
         // Due to augmented args creation, we know this parameter must exist in args
         let arg_def = args.get(&param.name).unwrap();
         Self::parse_regular_parameter_type(param, arg_def)?;
-        Self::parse_constraints(&mut param.constraints, arg_def)?;
+        parse_constraints(&mut param.constraints, arg_def)?;
 
         Ok(())
     }
@@ -126,50 +125,6 @@ impl QueryDef {
                 }
             }
         }
-        Ok(())
-    }
-
-    fn parse_constraints(
-        constraints: &mut crate::parameters::ParameterConstraints,
-        arg_def: &serde_json::Value,
-    ) -> Result<()> {
-        if let Some(range_val) = arg_def.get("range") {
-            if let Some(range_array) = range_val.as_array() {
-                let range: Vec<f64> = range_array.iter().filter_map(|v| v.as_f64()).collect();
-                constraints.range = Some(range);
-            }
-        }
-
-        if let Some(pattern_val) = arg_def.get("pattern") {
-            if let Some(pattern_str) = pattern_val.as_str() {
-                constraints.pattern = Some(pattern_str.to_string());
-            }
-        }
-
-        if let Some(enum_val) = arg_def.get("enum") {
-            if let Some(enum_array) = enum_val.as_array() {
-                constraints.enum_values = Some(enum_array.clone());
-            }
-        }
-
-        if let Some(itemtype_val) = arg_def.get("itemtype") {
-            if let Some(itemtype_str) = itemtype_val.as_str() {
-                let item_type = ParameterType::from_str(itemtype_str)?;
-                // Validate item type - TableName and List are not allowed as item types
-                match item_type {
-                    ParameterType::TableName | ParameterType::List => {
-                        return Err(JankenError::ParameterTypeMismatch {
-                            expected: "item_type for list items cannot be TableName or List"
-                                .to_string(),
-                            got: item_type.to_string(),
-                        });
-                    }
-                    _ => {}
-                }
-                constraints.item_type = Some(item_type);
-            }
-        }
-
         Ok(())
     }
 }

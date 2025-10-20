@@ -216,7 +216,19 @@ let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params
 
 ### Database Backend Priorities
 1. ✅ SQLite (complete)
-2. � PostgreSQL (planned implementation)
+2.  PostgreSQL (planned implementation)
+
+## 📦 Installation & Links
+
+**Install from Crates.io:**
+```bash
+cargo add jankensqlhub
+```
+
+**Links:**
+- [📦 Crates.io](https://crates.io/crates/jankensqlhub)
+- [📚 Documentation](https://docs.rs/jankensqlhub)
+- [🏠 Repository](https://github.com/pandazy/jankensqlhub)
 
 ---
 

@@ -1191,25 +1191,25 @@ fn test_list_parameter_constraint_validation_errors() {
         "list_int_constraints": {
             "query": "SELECT * FROM source WHERE id IN :[ints]",
             "args": {
-                "ints": { "type": "list", "itemtype": "integer" }
+                "ints": { "itemtype": "integer" }
             }
         },
         "list_string_pattern": {
             "query": "SELECT * FROM source WHERE name IN :[names]",
             "args": {
-                "names": { "type": "list", "itemtype": "string", "pattern": "^[A-Z][a-z]+$" }
+                "names": { "itemtype": "string", "pattern": "^[A-Z][a-z]+$" }
             }
         },
         "list_float_range": {
             "query": "SELECT * FROM source WHERE score IN :[scores]",
             "args": {
-                "scores": { "type": "list", "itemtype": "float", "range": [0.0, 100.0] }
+                "scores": { "itemtype": "float", "range": [0.0, 100.0] }
             }
         },
         "list_enum": {
             "query": "SELECT * FROM source WHERE status IN :[statuses]",
             "args": {
-                "statuses": { "type": "list", "itemtype": "string", "enum": ["active", "inactive", "pending"] }
+                "statuses": { "itemtype": "string", "enum": ["active", "inactive", "pending"] }
             }
         }
     });
@@ -1372,4 +1372,141 @@ fn test_invalid_itemtype_definition_error() {
         }
         _ => panic!("Expected ParameterTypeMismatch for invalid type string, got: {err:?}"),
     }
+}
+
+#[test]
+fn test_parameter_validation_range_definition_errors() {
+    // Test that invalid range constraint definitions are caught at definition time (parse_constraints)
+    // Range must be an array with exactly 2 numbers
+
+    // Test range not an array - should fail at definition time
+    let json_definitions_not_array = serde_json::json!({
+        "query_not_array": {
+            "query": "SELECT * FROM source WHERE id=@id",
+            "args": {
+                "id": { "type": "integer", "range": "not_an_array" }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_not_array);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(
+                expected,
+                "array with exactly 2 numbers for range constraint"
+            );
+            assert!(got.contains("not_an_array"));
+        }
+        _ => panic!("Expected ParameterTypeMismatch for range not being an array, got: {err:?}"),
+    }
+
+    // Test range array with wrong length (empty) - should fail at definition time
+    let json_definitions_empty_array = serde_json::json!({
+        "query_empty_array": {
+            "query": "SELECT * FROM source WHERE id=@id",
+            "args": {
+                "id": { "type": "integer", "range": [] }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_empty_array);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(
+                expected,
+                "array with exactly 2 numbers for range constraint"
+            );
+            assert_eq!(got, "array with 0 elements");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for empty range array, got: {err:?}"),
+    }
+
+    // Test range array with wrong length (3 elements) - should fail at definition time
+    let json_definitions_three_elements = serde_json::json!({
+        "query_three_elements": {
+            "query": "SELECT * FROM source WHERE id=@id",
+            "args": {
+                "id": { "type": "integer", "range": [1, 2, 3] }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_three_elements);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(
+                expected,
+                "array with exactly 2 numbers for range constraint"
+            );
+            assert_eq!(got, "array with 3 elements");
+        }
+        _ => panic!("Expected ParameterTypeMismatch for range array with 3 elements, got: {err:?}"),
+    }
+
+    // Test range array with non-number at first position - should fail at definition time
+    let json_definitions_non_number_first = serde_json::json!({
+        "query_non_number_first": {
+            "query": "SELECT * FROM source WHERE id=@id",
+            "args": {
+                "id": { "type": "integer", "range": ["not_a_number", 100] }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_non_number_first);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "number");
+            assert_eq!(got, "\"not_a_number\" at index 0");
+        }
+        _ => {
+            panic!("Expected ParameterTypeMismatch for non-number at first position, got: {err:?}")
+        }
+    }
+
+    // Test range array with non-number at second position - should fail at definition time
+    let json_definitions_non_number_second = serde_json::json!({
+        "query_non_number_second": {
+            "query": "SELECT * FROM source WHERE id=@id",
+            "args": {
+                "id": { "type": "integer", "range": [1, "not_a_number"] }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_non_number_second);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { expected, got } => {
+            assert_eq!(expected, "number");
+            assert_eq!(got, "\"not_a_number\" at index 1");
+        }
+        _ => {
+            panic!("Expected ParameterTypeMismatch for non-number at second position, got: {err:?}")
+        }
+    }
+
+    // Test that valid range definition works (should not fail)
+    let json_definitions_valid = serde_json::json!({
+        "query_valid_range": {
+            "query": "SELECT * FROM source WHERE score=@score",
+            "args": {
+                "score": { "type": "float", "range": [0.0, 100.0] }
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_valid);
+    assert!(result.is_ok(), "Valid range definition should work");
 }
