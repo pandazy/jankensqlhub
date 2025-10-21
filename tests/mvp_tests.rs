@@ -339,3 +339,39 @@ fn test_blob_parameter_basics() {
     assert_eq!(result.data[0]["filename"], "hello.txt");
     assert_eq!(result.data[0]["content"], serde_json::json!(blob_json));
 }
+
+#[test]
+fn test_table_name_column_syntax() {
+    // Test demonstrating that # syntax works for column names, not just table names
+    let conn = setup_db();
+    conn.execute(
+        "INSERT INTO source VALUES (1, 'John', 8.5), (2, 'Jane', 9.2)",
+        [],
+    )
+    .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "select_column": {
+            "query": "SELECT #column_name FROM source ORDER BY #column_name",
+            "returns": ["column_value"],
+            "args": {
+                "column_name": { "enum": ["id", "name", "score"] }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Test selecting from the "name" column
+    let params = serde_json::json!({"column_name": "name"});
+    let result = db_conn
+        .query_run(&queries, "select_column", &params)
+        .unwrap();
+
+    // Should return values ordered alphabetically: Jane, John
+    assert_eq!(result.data.len(), 2);
+    assert_eq!(result.data[0]["column_value"], "Jane");
+    assert_eq!(result.data[1]["column_value"], "John");
+}

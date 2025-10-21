@@ -8,7 +8,7 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 
 ### Core Capabilities
 - ✅ **Parameterizable SQL Templates** - `@param_name` syntax in queries, types defined separately
-- ✅ **Dynamic Table Names** - `#table_name` syntax for parameterizable table names
+- ✅ **Dynamic Identifiers** - `#identifier` syntax for parameterizable table/column names and other SQL identifiers
 - ✅ **List Parameter Support** - :[list_param] syntax for IN clauses with item type validation
 - ✅ **Web API Integration** - Server-side query adapter mapping JSON requests to prepared statements
 - ✅ **SQL Injection Protection** - Automatic prepared statement generation
@@ -26,8 +26,9 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 -- Basic parameter syntax - @params default to string type if no args specified
 SELECT * FROM users WHERE id=@user_id AND name=@user_name
 
--- Dynamic table name parameters - always table_name type with optional constraints
+-- Dynamic identifier parameters - #xxx syntax for table names, column names, etc. (always table_name type)
 SELECT * FROM #table_name WHERE id=@user_id
+SELECT #column_name FROM users ORDER BY #column_name
 
 -- List parameters for IN clauses - always list type with item type validation
 SELECT * FROM users WHERE id IN :[user_ids] AND status IN :[statuses]
@@ -130,6 +131,14 @@ Each query definition contains:
     "returns": ["id", "name"],
     "args": {
       "user_ids": {"itemtype": "integer"}
+    }
+  },
+  "select_column": {
+    "query": "SELECT #column_name FROM #table_name ORDER BY #column_name",
+    "returns": ["column_value"],
+    "args": {
+      "column_name": {"enum": ["id", "name", "score"]},
+      "table_name": {"enum": ["users", "accounts"]}
     }
   },
   "store_file": {

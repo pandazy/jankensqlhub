@@ -61,7 +61,7 @@ After running `cargo test` to verify functionality, always execute:
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
-- Current task name: 'coverage_improvement'
+- Current task name: TBD
 - Progress file name: `_progress_<task_name>.md`
 
 When a new task begins:
