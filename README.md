@@ -1,6 +1,6 @@
 # Janken SQL Hub - Database Query Management Library
 
-A high-performance, modular Rust library for parameterizable SQL query management with support for SQLite.
+A high-performance, modular Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (currently SQLite, PostgreSQL planned).
 
 ## 🎯 Overview
 
@@ -131,6 +131,14 @@ Each query definition contains:
     "args": {
       "user_ids": {"itemtype": "integer"}
     }
+  },
+  "store_file": {
+    "query": "INSERT INTO files (name, data, size) VALUES (@name, @data, @size)",
+    "args": {
+      "name": {"type": "string"},
+      "data": {"type": "blob", "range": [1, 1048576]},  // 1 byte to 1MB
+      "size": {"type": "integer"}
+    }
   }
 }
 ```
@@ -180,11 +188,15 @@ let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params
 - `:[list_param]` parameters: Automatically assigned "list" type
 
 ```rust
-// Parameter types (all case-insensitive)
-"integer", "string", "float", "boolean", "table_name", "list"
+// User-specified parameter types (all case-insensitive)
+"integer", "string", "float", "boolean", "blob"
+
+// Automatically assigned parameter types (cannot be overridden)
+"table_name"  // Assigned to parameters using #table syntax
+"list"        // Assigned to parameters using :[list] syntax
 
 // Constraint types
-"range": [min, max]     // For numeric types (integer/float)
+"range": [min, max]     // For numeric types (integer/float) and blob sizes
 "pattern": "regex"      // For string types (e.g., email validation)
 "enum": [value1, ...]   // For any type (allowed values). Table names support enum only.
 "itemtype": "type"      // For list types: specifies the type of each item in the list
