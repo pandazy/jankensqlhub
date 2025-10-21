@@ -470,7 +470,7 @@ fn test_multi_table_name_parameters() {
     // Test query with three table name parameters
     let json_definitions = serde_json::json!({
         "multi_table_test": {
-            "query": "SELECT DISTINCT t1.id AS id1, t1.name AS name1, t2.id AS id2, t2.name AS name2, t3.id AS id3, t3.name AS name3 FROM #table1 t1, #table2 t2, #table3 t3 WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3",
+            "query": "SELECT DISTINCT t1.id AS id1, t1.name AS name1, t2.id AS id2, t2.name AS name2, t3.id AS id3, t3.name AS name3 FROM #[table1] t1, #[table2] t2, #[table3] t3 WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3",
             "returns": ["id1", "name1", "id2", "name2", "id3", "name3"]
         }
     });
@@ -515,13 +515,13 @@ fn test_multi_statement_table_name_parameters() {
     // Test multi-statement query with table name parameters
     let json_definitions = serde_json::json!({
         "multi_statement_table_transfer": {
-            "query": "INSERT INTO #dest_table SELECT * FROM #source_table WHERE id <= @limit; UPDATE #dest_table SET name = UPPER(name);",
+            "query": "INSERT INTO #[dest_table] SELECT * FROM #[source_table] WHERE id <= @limit; UPDATE #[dest_table] SET name = UPPER(name);",
             "args": {
                 "limit": { "type": "integer" }
             }
         },
         "select_dest_table": {
-            "query": "SELECT * FROM #dest_table ORDER BY id",
+            "query": "SELECT * FROM #[dest_table] ORDER BY id",
             "returns": ["id", "name"]
         }
     });
@@ -622,6 +622,46 @@ fn test_sql_injection_protection_list_parameters() {
         .query_run(&queries, "safe_int_list", &params)
         .unwrap();
     assert_eq!(result.data.len(), 2);
+}
+
+#[test]
+fn test_concatenated_table_name_parameters() {
+    use jankensqlhub::parameters::parse_parameters_with_quotes;
+
+    // Test that the new #[ ] syntax correctly handles concatenated table names
+    // The old # syntax couldn't handle this because underscores are valid in table names
+
+    let sql = "SELECT * FROM rel_#[resource_a]_#[resource_b] WHERE id = @id";
+    let parameters = parse_parameters_with_quotes(sql).unwrap();
+
+    // Should parse two table name parameters and one regular parameter
+    assert_eq!(parameters.len(), 3);
+
+    // Check parameter names
+    let mut param_names: Vec<String> = parameters.iter().map(|p| p.name.clone()).collect();
+    param_names.sort();
+
+    assert_eq!(param_names, vec!["id", "resource_a", "resource_b"]);
+
+    // Check parameter types
+    assert!(
+        parameters
+            .iter()
+            .any(|p| p.name == "id" && p.param_type.to_string() == "string")
+    );
+    assert!(
+        parameters
+            .iter()
+            .any(|p| p.name == "resource_a" && p.param_type.to_string() == "table_name")
+    );
+    assert!(
+        parameters
+            .iter()
+            .any(|p| p.name == "resource_b" && p.param_type.to_string() == "table_name")
+    );
+
+    // With the new #[ ] syntax, we can clearly separate table name parameters
+    // even when they appear in concatenated strings like relationship table names
 }
 
 #[test]

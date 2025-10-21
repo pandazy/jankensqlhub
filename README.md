@@ -8,7 +8,7 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 
 ### Core Capabilities
 - ✅ **Parameterizable SQL Templates** - `@param_name` syntax in queries, types defined separately
-- ✅ **Dynamic Identifiers** - `#identifier` syntax for parameterizable table/column names and other SQL identifiers
+- ✅ **Dynamic Identifiers** - `#[identifier]` syntax for parameterizable table/column names and other SQL identifiers
 - ✅ **List Parameter Support** - :[list_param] syntax for IN clauses with item type validation
 - ✅ **Web API Integration** - Server-side query adapter mapping JSON requests to prepared statements
 - ✅ **SQL Injection Protection** - Automatic prepared statement generation
@@ -26,9 +26,9 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 -- Basic parameter syntax - @params default to string type if no args specified
 SELECT * FROM users WHERE id=@user_id AND name=@user_name
 
--- Dynamic identifier parameters - #xxx syntax for table names, column names, etc. (always table_name type)
-SELECT * FROM #table_name WHERE id=@user_id
-SELECT #column_name FROM users ORDER BY #column_name
+-- Dynamic identifier parameters - #[xxx] syntax for table names, column names, etc. (always table_name type)
+SELECT * FROM #[table_name] WHERE id=@user_id
+SELECT #[column_name] FROM users ORDER BY #[column_name]
 
 -- List parameters for IN clauses - always list type with item type validation
 SELECT * FROM users WHERE id IN :[user_ids] AND status IN :[statuses]
@@ -62,7 +62,7 @@ let result = conn.query_run(&queries, "find_user", &params)?;
 ### 1. Define Queries (JSON Configuration)
 
 Each query definition contains:
-- `"query"`: Required - The SQL statement with `@parameter` (`#table_name`) placeholders
+- `"query"`: Required - The SQL statement with `@parameter` (`#[table_name]`) placeholders
 - `"args"`: Optional - only needed to override default types or add constraints
 - `"returns"`: Optional - Array of column names for SELECT queries (determines JSON response structure)
 
@@ -111,7 +111,7 @@ Each query definition contains:
     }
   },
   "query_from_table": {
-    "query": "SELECT * FROM #source WHERE id=@id AND name=@name",
+    "query": "SELECT * FROM #[source] WHERE id=@id AND name=@name",
     "returns": ["id", "name"],
     "args": {
       "id": {"type": "integer"},
@@ -120,7 +120,7 @@ Each query definition contains:
     }
   },
   "insert_into_dynamic_table": {
-    "query": "INSERT INTO #dest_table (name) VALUES (@name)",
+    "query": "INSERT INTO #[dest_table] (name) VALUES (@name)",
     "args": {
       "dest_table": {"enum": ["accounts", "users"]},
       "name": {"type": "string"}
@@ -134,7 +134,7 @@ Each query definition contains:
     }
   },
   "select_column": {
-    "query": "SELECT #column_name FROM #table_name ORDER BY #column_name",
+    "query": "SELECT #[column_name] FROM #[table_name] ORDER BY #[column_name]",
     "returns": ["column_value"],
     "args": {
       "column_name": {"enum": ["id", "name", "score"]},
@@ -193,7 +193,7 @@ let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params
 
 **Automatic Type Assignment:**
 - `@param` parameters: Default to "string" type (can be overridden)
-- `#table_name` parameters: Automatically assigned "table_name" type
+- `#[table_name]` parameters: Automatically assigned "table_name" type
 - `:[list_param]` parameters: Automatically assigned "list" type
 
 ```rust

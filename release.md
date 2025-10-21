@@ -1,60 +1,60 @@
-# Release Notes v0.5.0
+# Release Notes v0.6.0
 
-## ✨ **BLOB Support Added**
+## 🚨 **Breaking Change: Parameter Syntax Updated**
 
-### New BLOB Parameter Type
-- Added support for `blob` parameter type for handling binary data
-- BLOB parameters accept JSON arrays containing byte values (0-255)
-- Automatic conversion to SQLite BLOB columns for database operations
+### Table Name Parameter Syntax Change
+- **CHANGED**: Table name parameter syntax updated from `#table_name` to `#[table_name]`
+- **Reason**: The old syntax (`#table_name`) failed with concatenated table names due to parsing ambiguities from underscores
+- **Benefit**: Enables concatenation like `rel_#[table_a]_#[table_b]` for relationship table names
+- **Migration Required**: Update all existing queries using `#table` syntax
 
-### BLOB Range Constraints
-- Range constraints now supported for BLOB parameters, representing size limits in bytes
-- Define minimum and maximum allowed BLOB sizes using the existing range constraint syntax
-- Example: `{"type": "blob", "range": [1, 1024]}` (1-1024 bytes)
+### Backward Compatibility
+- **Breaking**: Existing queries using `#table_name` syntax will no longer be recognized
+- **Migration**: Change all `#identifier` to `#[identifier]` in query definitions
+- **Validation**: All tests have been updated and verified to work with new syntax
 
-### BLOB Parameter Validation
-- Validates that BLOB values are arrays of numbers between 0-255
-- Provides clear error messages for invalid BLOB data formats
-- Size validation occurs both at parameter definition time and runtime
+### Examples of Updated Syntax
 
-### Examples of BLOB Usage
+**Before (v0.5.0 and earlier):**
+```json
+{
+  "query_dynamic_table": {
+    "query": "SELECT * FROM #table_name WHERE id=@id",
+    "args": {
+      "table_name": {"enum": ["users", "accounts"]}
+    }
+  }
+}
+```
+
+**After (v0.6.0 and later):**
+```json
+{
+  "query_dynamic_table": {
+    "query": "SELECT * FROM #[table_name] WHERE id=@id",
+    "args": {
+      "table_name": {"enum": ["users", "accounts"]}
+    }
+  }
+}
+```
+
+### Concatenation Support Enabled
+With the new syntax, you can now create queries with concatenated table parameters:
 
 ```json
 {
-  "store_binary_data": {
-    "query": "INSERT INTO files (name, data) VALUES (@name, @data)",
+  "query_related_tables": {
+    "query": "SELECT * FROM rel_#[parent_table]_#[child_table] WHERE parent_id=@id",
+    "returns": ["id", "data"],
     "args": {
-      "name": {"type": "string"},
-      "data": {"type": "blob", "range": [1, 1048576]}  // 1 byte to 1MB
-    }
-  },
-  "get_file_data": {
-    "query": "SELECT name, data FROM files WHERE id=@id",
-    "returns": ["name", "data"],
-    "args": {
+      "parent_table": {"enum": ["users", "companies"]},
+      "child_table": {"enum": ["orders", "products"]},
       "id": {"type": "integer"}
     }
   }
 }
 ```
 
-### API Usage
-```rust
-// Store binary data
-let binary_data: Vec<u8> = vec![72, 101, 108, 108, 111]; // "Hello" as bytes
-let params = serde_json::json!({
-    "name": "hello.txt",
-    "data": binary_data  // Will be stored as BLOB in database
-});
-conn.query_run(&queries, "store_binary_data", &params)?;
-```
-
-## 🧪 **Enhanced Type System**
-
-### Updated Parameter Types
-- Added `blob` to the list of supported parameter types
-- Updated error messages and documentation to include BLOB support
-- All existing parameter types (integer, string, float, boolean, table_name, list) remain unchanged
-
 ---
-**Version 0.5.0** - Added BLOB parameter support for binary data handling
+**Version 0.6.0** - Parameter syntax updated to support table name concatenation</parameter>

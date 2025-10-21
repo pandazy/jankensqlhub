@@ -354,7 +354,7 @@ fn test_table_name_column_syntax() {
 
     let json_definitions = serde_json::json!({
         "select_column": {
-            "query": "SELECT #column_name FROM source ORDER BY #column_name",
+            "query": "SELECT #[column_name] FROM source ORDER BY #[column_name]",
             "returns": ["column_value"],
             "args": {
                 "column_name": { "enum": ["id", "name", "score"] }

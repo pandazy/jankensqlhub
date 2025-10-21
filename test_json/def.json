@@ -1,6 +1,6 @@
 {
 	"my_list": {
-		"query": "select * from #source where id=@id and name=@name",
+		"query": "select * from #[source] where id=@id and name=@name",
 		"returns": ["id", "name"],
 		"args": {
 			"id": { "type": "integer" },
