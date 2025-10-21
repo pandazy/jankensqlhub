@@ -286,3 +286,56 @@ fn test_debug_sql_statements() {
     );
     assert!(result.sql_statements[0] == "select * from source");
 }
+
+#[test]
+fn test_blob_parameter_basics() {
+    // MVP test showing blob parameters work with text-to-bytes conversion
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE files (id INTEGER, filename TEXT, content BLOB)",
+        [],
+    )
+    .unwrap();
+
+    let mut db_conn = DatabaseConnection::SQLite(conn);
+
+    let json_definitions = serde_json::json!({
+        "save_file": {
+            "query": "INSERT INTO files (id, filename, content) VALUES (@id, @filename, @content)",
+            "args": {
+                "id": { "type": "integer" },
+                "filename": { "type": "string" },
+                "content": { "type": "blob", "range": [1, 1000] }
+            }
+        },
+        "get_file": {
+            "query": "SELECT filename, content FROM files WHERE id=@id",
+            "returns": ["filename", "content"],
+            "args": {
+                "id": { "type": "integer" }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Convert text to bytes and test blob storage/retrieval
+    let file_content = "Hello World! This is a test file.";
+    let blob_bytes: Vec<u8> = file_content.as_bytes().to_vec();
+    let blob_json: Vec<serde_json::Value> =
+        blob_bytes.iter().map(|&b| serde_json::json!(b)).collect();
+
+    // Save the file with blob content
+    let params = serde_json::json!({"id": 1, "filename": "hello.txt", "content": blob_json});
+    let result = db_conn.query_run(&queries, "save_file", &params).unwrap();
+    assert!(result.data.is_empty());
+    assert!(result.sql_statements[0].contains("INSERT INTO files"));
+
+    // Retrieve the file and verify blob content
+    let params = serde_json::json!({"id": 1});
+    let result = db_conn.query_run(&queries, "get_file", &params).unwrap();
+
+    assert_eq!(result.data.len(), 1);
+    assert_eq!(result.data[0]["filename"], "hello.txt");
+    assert_eq!(result.data[0]["content"], serde_json::json!(blob_json));
+}

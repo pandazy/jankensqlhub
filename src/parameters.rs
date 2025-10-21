@@ -23,6 +23,7 @@ pub enum ParameterType {
     Boolean,
     TableName,
     List,
+    Blob,
 }
 
 impl FromStr for ParameterType {
@@ -36,8 +37,9 @@ impl FromStr for ParameterType {
             "boolean" => Ok(ParameterType::Boolean),
             "table_name" => Ok(ParameterType::TableName),
             "list" => Ok(ParameterType::List),
+            "blob" => Ok(ParameterType::Blob),
             _ => Err(JankenError::ParameterTypeMismatch {
-                expected: "integer, string, float, boolean, table_name or list".to_string(),
+                expected: "integer, string, float, boolean, table_name, list or blob".to_string(),
                 got: s.to_string(),
             }),
         }
@@ -53,6 +55,7 @@ impl std::fmt::Display for ParameterType {
             ParameterType::Boolean => "boolean",
             ParameterType::TableName => "table_name",
             ParameterType::List => "list",
+            ParameterType::Blob => "blob",
         };
         write!(f, "{s}")
     }

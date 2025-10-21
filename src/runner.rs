@@ -51,6 +51,16 @@ fn parameter_value_to_sql(
             // List parameters are handled separately in list expansion
             Box::new(String::new()) // Placeholder
         }
+        ParameterType::Blob => {
+            // Convert array of byte values to Vec<u8>
+            let bytes: Vec<u8> = param_value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap() as u8)
+                .collect();
+            Box::new(bytes)
+        }
     }
 }
 

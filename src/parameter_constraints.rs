@@ -46,6 +46,29 @@ impl ParameterConstraints {
                     return Err(Self::constraint_mismatch_error(param_type, value));
                 }
             }
+            crate::ParameterType::Blob => {
+                if !value.is_array() {
+                    return Err(Self::constraint_mismatch_error(param_type, value));
+                }
+                // Validate that all elements are byte values (0-255)
+                if let Some(arr) = value.as_array() {
+                    for (i, item) in arr.iter().enumerate() {
+                        if let Some(num) = item.as_u64() {
+                            if num > 255 {
+                                return Err(JankenError::ParameterTypeMismatch {
+                                    expected: format!("byte values (0-255) at index {i}"),
+                                    got: format!("{num}"),
+                                });
+                            }
+                        } else {
+                            return Err(JankenError::ParameterTypeMismatch {
+                                expected: format!("byte values (0-255) at index {i}"),
+                                got: item.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -79,31 +102,51 @@ impl ParameterConstraints {
         value: &serde_json::Value,
         param_type: &crate::ParameterType,
     ) -> Result<()> {
-        // Check that range is only specified for numeric types
+        // Check that range is only specified for numeric types and blob
         if self.range.is_some()
             && !matches!(
                 param_type,
-                crate::ParameterType::Integer | crate::ParameterType::Float
+                crate::ParameterType::Integer
+                    | crate::ParameterType::Float
+                    | crate::ParameterType::Blob
             )
         {
             return Err(JankenError::ParameterTypeMismatch {
-                expected: "numeric type".to_string(),
+                expected: "numeric type or blob".to_string(),
                 got: param_type.to_string(),
             });
         }
 
-        // Check range for numeric types
+        // Check range for numeric types and blob size
         if let Some(range) = &self.range {
-            // Validated upfront that param_type is Integer or Float, so value is number
-            let num_val = value.as_f64().unwrap();
+            match param_type {
+                crate::ParameterType::Integer | crate::ParameterType::Float => {
+                    // Validated upfront that param_type is Integer or Float, so value is number
+                    let num_val = value.as_f64().unwrap();
 
-            if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
-                if num_val < min || num_val > max {
-                    return Err(JankenError::ParameterTypeMismatch {
-                        expected: format!("value between {min} and {max}"),
-                        got: num_val.to_string(),
-                    });
+                    if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
+                        if num_val < min || num_val > max {
+                            return Err(JankenError::ParameterTypeMismatch {
+                                expected: format!("value between {min} and {max}"),
+                                got: num_val.to_string(),
+                            });
+                        }
+                    }
                 }
+                crate::ParameterType::Blob => {
+                    // For blob, range represents min/max size in bytes
+                    let blob_size = value.as_array().unwrap().len() as f64;
+
+                    if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
+                        if blob_size < min || blob_size > max {
+                            return Err(JankenError::ParameterTypeMismatch {
+                                expected: format!("blob size between {min} and {max} bytes"),
+                                got: format!("{blob_size} bytes"),
+                            });
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
