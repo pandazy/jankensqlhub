@@ -219,7 +219,7 @@ fn test_parameter_validation_enum() {
             }
         },
         "select_with_enum_table": {
-            "query": "SELECT * FROM #table_name",
+            "query": "SELECT * FROM #[table_name]",
             "returns": ["id", "name", "score"],
             "args": {
                 "table_name": {
@@ -528,7 +528,7 @@ fn test_parameter_validation_pattern_table_name() {
     // Test that pattern validation works for table_name parameters
     let json_definitions = serde_json::json!({
         "table_pattern_query": {
-            "query": "SELECT * FROM #table_name",
+            "query": "SELECT * FROM #[table_name]",
             "returns": ["id", "name", "score"],
             "args": {
                 "table_name": {
@@ -618,7 +618,7 @@ fn test_table_name_parameter_security_and_validation() {
 
     let json_definitions = serde_json::json!({
         "table_injection_test": {
-            "query": "SELECT * FROM #table_name WHERE id=@id",
+            "query": "SELECT * FROM #[table_name] WHERE id=@id",
             "returns": ["id", "name"],
             "args": {
                 "id": { "type": "integer" }
@@ -950,8 +950,8 @@ fn test_parameter_name_conflict_error() {
 
     // Test conflict cases
     let conflict_cases = vec![
-        ("SELECT * FROM #conflict WHERE id=@conflict", "conflict"), // table vs param
-        ("SELECT * FROM #conflict WHERE id=:[conflict]", "conflict"), // table vs list
+        ("SELECT * FROM #[conflict] WHERE id=@conflict", "conflict"), // table vs param
+        ("SELECT * FROM #[conflict] WHERE id=:[conflict]", "conflict"), // table vs list
         (
             "SELECT * FROM table WHERE id=:[conflict] AND name=@conflict",
             "conflict",
@@ -980,7 +980,7 @@ fn test_table_name_validation_error() {
     // Test that invalid table names trigger ParameterTypeMismatch error
     let json_definitions = serde_json::json!({
         "table_query": {
-            "query": "SELECT * FROM #table_name",
+            "query": "SELECT * FROM #[table_name]",
             "returns": ["id"]
         }
     });
@@ -1084,7 +1084,7 @@ fn test_sqlite_type_mismatch_errors() {
             "args": { "active": { "type": "boolean" } }
         },
         "table_test": {
-            "query": "SELECT * FROM #table_name",
+            "query": "SELECT * FROM #[table_name]",
             "returns": ["id", "name", "score"]
         }
     });

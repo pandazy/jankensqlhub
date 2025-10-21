@@ -10,7 +10,7 @@ use std::str::FromStr;
 pub static PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r"@(\w+)").unwrap());
 pub static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"#(\w+)").unwrap());
+    once_cell::sync::Lazy::new(|| Regex::new(r"#\[(\w+)\]").unwrap());
 pub static LIST_PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r":\[(\w+)\]").unwrap());
 

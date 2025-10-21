@@ -1,0 +1,45 @@
+{
+  "select_by_ids": {
+    "query": "select * from #[resource] where id in :[ids]",
+    "returns": ["id", "name", "created_at", "updated_at", "status"],
+    "args": {
+      "resource": { "enum": ["shows", "songs", "artists"] },
+      "ids": { "type": "list", "item_type": "integer" }
+    }
+  },
+  "select_children": {
+    "query": "select * from #[resource] where #[foreign_key] in :[f_ids]",
+    "returns": ["id", "name", "created_at", "updated_at", "status"],
+    "args": {
+      "resource": { "enum": ["shows", "songs", "artists", "rel_show_song"] },
+      "foreign_key": { "enum": ["show_id", "song_id", "artist_id"] },
+      "f_ids": { "type": "list", "item_type": "string" }
+    }
+  },
+  "select_related_shows_songs": {
+    "query": "select r.id as rel_id, r.show_id, r.song_id, s.name as show_name, g.name as song_name, r.created_at from rel_show_song r join shows s on r.show_id = s.id join songs g on r.song_id = g.id",
+    "returns": ["rel_id", "show_id", "song_id", "show_name", "song_name", "created_at"],
+    "args": {}
+  },
+  "select_shows_via_songs": {
+    "query": "select distinct s.* from shows s join rel_show_song r on s.id = r.show_id where r.song_id in :[song_ids]",
+    "returns": ["id", "name", "context", "created_at", "updated_at", "status"],
+    "args": {
+      "song_ids": { "type": "list", "item_type": "integer" }
+    }
+  },
+  "select_songs_via_shows": {
+    "query": "select distinct g.* from songs g join rel_show_song r on g.id = r.song_id where r.show_id in :[show_ids]",
+    "returns": ["id", "name", "artist_id", "created_at", "updated_at", "status"],
+    "args": {
+      "show_ids": { "type": "list", "item_type": "integer" }
+    }
+  },
+  "select_songs_via_artists": {
+    "query": "select g.* from songs g join artists a on g.artist_id = a.id where a.id in :[artist_ids]",
+    "returns": ["id", "name", "artist_id", "created_at", "updated_at", "status"],
+    "args": {
+      "artist_ids": { "type": "list", "item_type": "string" }
+    }
+  }
+}
