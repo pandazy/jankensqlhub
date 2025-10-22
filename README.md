@@ -201,13 +201,14 @@ let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params
 "integer", "string", "float", "boolean", "blob"
 
 // Automatically assigned parameter types (cannot be overridden)
-"table_name"  // Assigned to parameters using #table syntax
+"table_name"  // Assigned to parameters using #[table] syntax
 "list"        // Assigned to parameters using :[list] syntax
 
 // Constraint types
 "range": [min, max]     // For numeric types (integer/float) and blob sizes
 "pattern": "regex"      // For string types (e.g., email validation)
 "enum": [value1, ...]   // For any type (allowed values). Table names support enum only.
+"enumif": {...}         // For conditional enum constraints based on other parameters
 "itemtype": "type"      // For list types: specifies the type of each item in the list
 
 // Examples in args object
@@ -218,6 +219,60 @@ let query_result = conn.query_run(&queries, "insert_into_dynamic_table", &params
 "user_ids": {"itemtype": "integer"}                                     // List of integers for IN clauses
 "names": {"type": "boolean"}                                              // Explicit string type (same as default)
 "source": {"enum": ["users", "accounts"]}                               // Table name enum (table_name type auto-assigned)
+"tags": {                                                               // Conditional enum based on media_type
+  "enumif": {
+    "media_type": {
+      "song": ["artist", "album", "title"],
+      "show": ["channel", "category", "episodes"]
+    }
+  }
+}
+```
+
+### Conditional Enum Constraints (`enumif`)
+
+The `enumif` constraint allows parameter validation based on the values of other parameters, enabling conditional enums. The conditional parameter (the one referenced in `enumif`) can be any primitive type (string, number, boolean) - not just enum values.
+
+**Structure:**
+```json
+{
+  "parameter_with_enumif": {
+    "enumif": {
+      "conditional_parameter": {
+        "conditional_value1": ["allowed", "values", "for", "this", "condition"],
+        "conditional_value2": ["different", "allowed", "values", "here"]
+      }
+    }
+  }
+}
+```
+
+**Validation Logic:**
+1. The conditional parameter value must match one of the defined conditions
+2. If multiple conditional parameters are specified, they're evaluated alphabetically by parameter name
+3. The first matching condition (alphabetically) determines the allowed values
+4. Parameter values must be in the allowed array for the matching condition
+
+**Example:**
+```json
+{
+  "media_source": {
+    "enumif": {
+      "media_type": {
+        "song": ["artist", "album"],
+        "show": ["channel", "episodes"]
+      }
+    }
+  },
+  "priority_level": {
+    "enumif": {
+      "severity": {
+        "high": ["urgent", "immediate"],
+        "low": ["optional"]
+      }
+    }
+  }
+}
 ```
 
 ## ⚡ Performance Characteristics

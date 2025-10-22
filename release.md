@@ -1,60 +1,53 @@
-# Release Notes v0.6.0
+# Release Notes v0.6.1
 
-## 🚨 **Breaking Change: Parameter Syntax Updated**
+## ✨ **New Feature: Conditional Enum Constraints (`enumif`)**
 
-### Table Name Parameter Syntax Change
-- **CHANGED**: Table name parameter syntax updated from `#table_name` to `#[table_name]`
-- **Reason**: The old syntax (`#table_name`) failed with concatenated table names due to parsing ambiguities from underscores
-- **Benefit**: Enables concatenation like `rel_#[table_a]_#[table_b]` for relationship table names
-- **Migration Required**: Update all existing queries using `#table` syntax
+### Conditional Enum Constraint Support
+- **NEW**: Added `enumif` constraint for conditional enum validation
+- **Purpose**: Enables parameter validation where allowed values depend on other parameter values
+- **Conditional Parameters**: Can reference any primitive type (string, number, boolean), not just enum values
+- **Multiple Conditions**: If multiple conditional parameters are specified, they're evaluated alphabetically
 
-### Backward Compatibility
-- **Breaking**: Existing queries using `#table_name` syntax will no longer be recognized
-- **Migration**: Change all `#identifier` to `#[identifier]` in query definitions
-- **Validation**: All tests have been updated and verified to work with new syntax
-
-### Examples of Updated Syntax
-
-**Before (v0.5.0 and earlier):**
+### Syntax
 ```json
 {
-  "query_dynamic_table": {
-    "query": "SELECT * FROM #table_name WHERE id=@id",
-    "args": {
-      "table_name": {"enum": ["users", "accounts"]}
+  "parameter_name": {
+    "enumif": {
+      "conditional_param": {
+        "condition_value1": ["allowed1", "allowed2"],
+        "condition_value2": ["different1", "different2"]
+      }
     }
   }
 }
 ```
 
-**After (v0.6.0 and later):**
+### Examples
 ```json
 {
-  "query_dynamic_table": {
-    "query": "SELECT * FROM #[table_name] WHERE id=@id",
-    "args": {
-      "table_name": {"enum": ["users", "accounts"]}
+  "media_source": {
+    "enumif": {
+      "media_type": {
+        "song": ["artist", "album", "title"],
+        "show": ["channel", "category", "episodes"]
+      }
+    }
+  },
+  "priority": {
+    "enumif": {
+      "severity": {
+        "high": ["urgent", "immediate"],
+        "low": ["optional", "backlog"]
+      }
     }
   }
 }
 ```
 
-### Concatenation Support Enabled
-With the new syntax, you can now create queries with concatenated table parameters:
-
-```json
-{
-  "query_related_tables": {
-    "query": "SELECT * FROM rel_#[parent_table]_#[child_table] WHERE parent_id=@id",
-    "returns": ["id", "data"],
-    "args": {
-      "parent_table": {"enum": ["users", "companies"]},
-      "child_table": {"enum": ["orders", "products"]},
-      "id": {"type": "integer"}
-    }
-  }
-}
-```
+### Validation Behavior
+- Conditional parameter value must match a defined condition
+- Parameter value must be in the allowed array for the matching condition
+- Multiple conditional parameters evaluated alphabetically (first match wins)
 
 ---
-**Version 0.6.0** - Parameter syntax updated to support table name concatenation</parameter>
+**Version 0.6.1** - Added conditional enum constraints (`enumif`)

@@ -257,9 +257,12 @@ fn prepare_single_statement(
             .ok_or_else(|| JankenError::ParameterNotProvided(param_def.name.clone()))?;
 
         // Validate parameter constraints
-        param_def
-            .constraints
-            .validate(value, &param_def.param_type)?;
+        param_def.constraints.validate(
+            value,
+            &param_def.param_type,
+            &param_def.name,
+            request_params_obj,
+        )?;
     }
 
     let (mut prepared_sql, mut named_params) =
