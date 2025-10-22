@@ -3,6 +3,7 @@ use crate::{
     result::{JankenError, Result},
 };
 use regex::Regex;
+use std::collections::HashMap;
 use std::str::FromStr;
 
 /// Parameter constraints for validation
@@ -12,9 +13,28 @@ pub struct ParameterConstraints {
     pub pattern: Option<String>, // For string types: regex pattern
     pub enum_values: Option<Vec<serde_json::Value>>, // For any type: allowed values
     pub item_type: Option<crate::ParameterType>, // For list types: the type of each item
+    pub enumif: Option<HashMap<String, HashMap<String, Vec<serde_json::Value>>>>, // Conditional enums: {"other_param": {"value": [allowed_values]}}
 }
 
 impl ParameterConstraints {
+    /// Convert a JSON value to a condition key string for enumif constraints
+    /// Only primitive values (String, Number, Bool) are allowed as condition keys
+    pub(crate) fn value_to_condition_key(
+        value: &serde_json::Value,
+        param_name: &str,
+    ) -> Result<String> {
+        match value {
+            serde_json::Value::String(s) => Ok(s.clone()),
+            serde_json::Value::Number(n) => Ok(n.to_string()),
+            serde_json::Value::Bool(b) => Ok(b.to_string()),
+            _ => Err(JankenError::ParameterTypeMismatch {
+                expected: "conditional parameter to be primitive (string, number, or boolean)"
+                    .to_string(),
+                got: format!("{value} (type {value}) for parameter {param_name}"),
+            }),
+        }
+    }
+
     /// Validate basic type (without any constraints)
     fn validate_basic_type(
         value: &serde_json::Value,
@@ -84,23 +104,27 @@ impl ParameterConstraints {
         }
     }
 
-    /// Validate parameter constraints (range, pattern, enum) assuming basic type validation is already done
+    /// Validate parameter constraints (range, pattern, enum, enumif) assuming basic type validation is already done
     fn validate_constraints(
         &self,
         value: &serde_json::Value,
         param_type: &crate::ParameterType,
+        param_name: &str,
+        all_params: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
         // First validate basic type
         Self::validate_basic_type(value, param_type)?;
         // Then validate the constraint rules
-        self.validate_constraint_rules(value, param_type)
+        self.validate_constraint_rules(value, param_type, param_name, all_params)
     }
 
-    /// Validate constraint rules (range, pattern, enum) only, assuming basic type is already validated
+    /// Validate constraint rules (range, pattern, enum, enumif) only, assuming basic type is already validated
     fn validate_constraint_rules(
         &self,
         value: &serde_json::Value,
         param_type: &crate::ParameterType,
+        param_name: &str,
+        all_params: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
         // Check that range is only specified for numeric types and blob
         if self.range.is_some()
@@ -187,6 +211,62 @@ impl ParameterConstraints {
             }
         }
 
+        // Check conditional enum constraints - this is security-critical, so we must find valid conditions
+        if let Some(enumif) = &self.enumif {
+            // Sort the conditional parameters alphabetically for deterministic behavior
+            let mut sorted_conditional_params: Vec<&String> = enumif.keys().collect();
+            sorted_conditional_params.sort();
+
+            let mut found_matching_condition = false;
+            let mut allowed_values: Option<&Vec<serde_json::Value>> = None;
+
+            for conditional_param in sorted_conditional_params {
+                if let Some(conditions) = enumif.get(conditional_param) {
+                    if let Some(cond_val) = all_params.get(conditional_param) {
+                        // Get the conditional value as a string key (without JSON quotes)
+                        let cond_val_str =
+                            Self::value_to_condition_key(cond_val, conditional_param)?;
+
+                        if let Some(allowed) = conditions.get(&cond_val_str) {
+                            found_matching_condition = true;
+                            // Use the first matching condition (as processed in alphabetical order)
+                            if allowed_values.is_none() {
+                                allowed_values = Some(allowed);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Security: If we have enumif constraint but no matching condition was found,
+            // this means the conditional parameter value doesn't correspond to any defined condition,
+            // which implies invalid state and should be rejected to prevent injection
+            if !found_matching_condition {
+                return Err(JankenError::ParameterTypeMismatch {
+                    expected: "conditional parameter value that matches a defined condition"
+                        .to_string(),
+                    got: format!(
+                        "value not covered by any enumif condition for parameter {param_name}"
+                    ),
+                });
+            }
+
+            // Validate against the allowed values from the matching condition
+            if let Some(allowed) = allowed_values {
+                if !allowed.contains(value) {
+                    let allowed_str = allowed
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: format!("one of [{allowed_str}] based on conditional parameters"),
+                        got: value.to_string(),
+                    });
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -195,6 +275,8 @@ impl ParameterConstraints {
         &self,
         value: &serde_json::Value,
         param_type: &crate::ParameterType,
+        param_name: &str,
+        all_params: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
         if param_type == &crate::ParameterType::List {
             if !value.is_array() {
@@ -213,7 +295,7 @@ impl ParameterConstraints {
                             got: item.to_string(),
                         });
                     }
-                    self.validate_constraint_rules(item, item_type)?;
+                    self.validate_constraint_rules(item, item_type, param_name, all_params)?;
                 }
             }
             // For Lists, constraints (range, pattern, enum) apply to items if item_type is set,
@@ -221,7 +303,7 @@ impl ParameterConstraints {
             return Ok(());
         }
 
-        self.validate_constraints(value, param_type)?;
+        self.validate_constraints(value, param_type, param_name, all_params)?;
 
         if param_type == &crate::ParameterType::TableName {
             // value cannot be a non-string here since basic type validation has been done
@@ -292,6 +374,67 @@ pub fn parse_constraints(
         }
     }
 
+    if let Some(enumif_val) = arg_def.get("enumif") {
+        if let Some(enumif_obj) = enumif_val.as_object() {
+            let mut enumif_map = HashMap::new();
+
+            for (conditional_param, conditions) in enumif_obj {
+                if let Some(conditions_obj) = conditions.as_object() {
+                    let mut conditions_map = HashMap::new();
+
+                    for (value_key, allowed_values) in conditions_obj {
+                        if let Some(allowed_array) = allowed_values.as_array() {
+                            // Validate that enumif allowed values are only primitives (numbers, booleans, strings) - no blobs/arrays
+                            for (i, allowed_value) in allowed_array.iter().enumerate() {
+                                match allowed_value {
+                                    serde_json::Value::String(_)
+                                    | serde_json::Value::Number(_)
+                                    | serde_json::Value::Bool(_) => {
+                                        // These are allowed
+                                    }
+                                    _ => {
+                                        return Err(JankenError::ParameterTypeMismatch {
+                                            expected: "enumif allowed values to be primitives (string, number, or boolean)".to_string(),
+                                            got: format!("{allowed_value} (type {allowed_value}) at index {i} for condition {value_key}"),
+                                        });
+                                    }
+                                }
+                            }
+                            conditions_map.insert(value_key.to_string(), allowed_array.clone());
+                        } else {
+                            return Err(JankenError::ParameterTypeMismatch {
+                                expected: "array of allowed values".to_string(),
+                                got: format!("{allowed_values} for condition {value_key}"),
+                            });
+                        }
+                    }
+
+                    enumif_map.insert(conditional_param.to_string(), conditions_map);
+                } else {
+                    return Err(JankenError::ParameterTypeMismatch {
+                        expected: "object mapping condition values to allowed arrays".to_string(),
+                        got: format!("{conditions} for parameter {conditional_param}"),
+                    });
+                }
+            }
+
+            constraints.enumif = Some(enumif_map);
+        } else {
+            return Err(JankenError::ParameterTypeMismatch {
+                expected: "object mapping conditional parameters to conditions".to_string(),
+                got: format!("{enumif_val}"),
+            });
+        }
+    }
+
+    // Validate that enum and enumif are mutually exclusive
+    if constraints.enum_values.is_some() && constraints.enumif.is_some() {
+        return Err(JankenError::ParameterTypeMismatch {
+            expected: "either 'enum' or 'enumif', not both".to_string(),
+            got: "'enum' and 'enumif' both specified".to_string(),
+        });
+    }
+
     if let Some(itemtype_val) = arg_def.get("itemtype") {
         if let Some(itemtype_str) = itemtype_val.as_str() {
             let item_type = ParameterType::from_str(itemtype_str)?;
@@ -311,4 +454,35 @@ pub fn parse_constraints(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::result::JankenError;
+
+    #[test]
+    fn test_value_to_condition_key_non_primitive_error() {
+        // Test the impossible edge case: non-primitive values as condition keys
+        // This should never happen in normal operation due to upstream validation,
+        // but we test it to ensure the defensive error handling works correctly
+
+        let non_primitive_val =
+            serde_json::Value::Array(vec![serde_json::json!(1), serde_json::json!(2)]);
+        let result = ParameterConstraints::value_to_condition_key(&non_primitive_val, "param");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        match err {
+            JankenError::ParameterTypeMismatch { expected, got } => {
+                assert_eq!(
+                    expected,
+                    "conditional parameter to be primitive (string, number, or boolean)"
+                );
+                assert!(got.contains("[1,2]"));
+                assert!(got.contains("param"));
+            }
+            _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+        }
+    }
 }
