@@ -111,13 +111,12 @@ fn test_resource_queries_json_loading() {
     // Test that all expected queries are present
     assert!(queries.definitions.contains_key("select_by_ids"));
     assert!(queries.definitions.contains_key("select_children"));
+    assert!(queries.definitions.contains_key("select_related_entities"));
     assert!(
         queries
             .definitions
-            .contains_key("select_related_shows_songs")
+            .contains_key("select_entities_via_relation")
     );
-    assert!(queries.definitions.contains_key("select_shows_via_songs"));
-    assert!(queries.definitions.contains_key("select_songs_via_shows"));
     assert!(queries.definitions.contains_key("select_songs_via_artists"));
 }
 
@@ -169,15 +168,21 @@ fn test_select_children() {
 }
 
 #[test]
-fn test_select_related_shows_songs() {
+fn test_select_related_entities() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
     let conn = setup_resource_schema();
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
     // Test selecting related shows and songs through rel_show_song
-    let params = serde_json::json!({});
+    let params = serde_json::json!({
+        "relation_table": "rel_show_song",
+        "source_fk": "show_id",
+        "target_fk": "song_id",
+        "source_table": "shows",
+        "target_table": "songs"
+    });
     let result = db_conn
-        .query_run(&queries, "select_related_shows_songs", &params)
+        .query_run(&queries, "select_related_entities", &params)
         .unwrap();
 
     assert_eq!(result.data.len(), 3); // 3 relationships total
@@ -185,28 +190,35 @@ fn test_select_related_shows_songs() {
     // First relationship: Rock Concert (show) - Thunder (song)
     let first_rel = &result.data[0];
     assert_eq!(
-        first_rel.get("show_name").unwrap().as_str().unwrap(),
+        first_rel.get("source_name").unwrap().as_str().unwrap(),
         "Rock Concert"
     );
     assert_eq!(
-        first_rel.get("song_name").unwrap().as_str().unwrap(),
+        first_rel.get("target_name").unwrap().as_str().unwrap(),
         "Thunder"
     );
     assert_eq!(first_rel.get("rel_id").unwrap().as_i64().unwrap(), 1);
-    assert_eq!(first_rel.get("show_id").unwrap().as_i64().unwrap(), 1);
-    assert_eq!(first_rel.get("song_id").unwrap().as_i64().unwrap(), 1);
+    assert_eq!(first_rel.get("source_id").unwrap().as_i64().unwrap(), 1);
+    assert_eq!(first_rel.get("target_id").unwrap().as_i64().unwrap(), 1);
 }
 
 #[test]
-fn test_select_shows_via_songs() {
+fn test_select_entities_via_relation_shows_via_songs() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
     let conn = setup_resource_schema();
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test selecting shows that have specific songs
-    let params = serde_json::json!({"song_ids": [1, 2]});
+    // Test selecting shows that have specific songs using the generalized query
+    let params = serde_json::json!({
+        "target_table": "shows",
+        "relation_table": "rel_show_song",
+        "source_fk": "song_id",
+        "target_fk": "show_id",
+        "source_ids": [1, 2],
+        "foreign_key": "show_id"
+    });
     let result = db_conn
-        .query_run(&queries, "select_shows_via_songs", &params)
+        .query_run(&queries, "select_entities_via_relation", &params)
         .unwrap();
 
     assert_eq!(result.data.len(), 2); // Show 1 (Thunder), Show 2 (Smooth Jazz)
@@ -221,15 +233,22 @@ fn test_select_shows_via_songs() {
 }
 
 #[test]
-fn test_select_songs_via_shows() {
+fn test_select_entities_via_relation_songs_via_shows() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
     let conn = setup_resource_schema();
     let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    // Test selecting songs that belong to specific shows
-    let params = serde_json::json!({"show_ids": [1]});
+    // Test selecting songs that belong to specific shows using the generalized query
+    let params = serde_json::json!({
+        "target_table": "songs",
+        "relation_table": "rel_show_song",
+        "source_fk": "show_id",
+        "target_fk": "song_id",
+        "source_ids": [1],
+        "foreign_key": "song_id"
+    });
     let result = db_conn
-        .query_run(&queries, "select_songs_via_shows", &params)
+        .query_run(&queries, "select_entities_via_relation", &params)
         .unwrap();
 
     assert_eq!(result.data.len(), 2); // Show 1 has Thunder and Bass Line

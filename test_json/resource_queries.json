@@ -11,26 +11,64 @@
     "query": "select * from #[resource] where #[foreign_key] in :[f_ids]",
     "returns": ["id", "name", "created_at", "updated_at", "status"],
     "args": {
-      "resource": { "enum": ["shows", "songs", "artists", "rel_show_song"] },
+      "resource": {
+        "enumif": {
+          "foreign_key": {
+            "show_id": ["shows", "songs", "rel_show_song"],
+            "song_id": ["songs", "rel_show_song"],
+            "artist_id": ["songs", "artists"]
+          }
+        }
+      },
       "foreign_key": { "enum": ["show_id", "song_id", "artist_id"] }
     }
   },
-  "select_related_shows_songs": {
-    "query": "select r.id as rel_id, r.show_id, r.song_id, s.name as show_name, g.name as song_name, r.created_at from rel_show_song r join shows s on r.show_id = s.id join songs g on r.song_id = g.id",
-    "returns": ["rel_id", "show_id", "song_id", "show_name", "song_name", "created_at"]
-  },
-  "select_shows_via_songs": {
-    "query": "select distinct s.* from shows s join rel_show_song r on s.id = r.show_id where r.song_id in :[song_ids]",
-    "returns": ["id", "name", "context", "created_at", "updated_at", "status"],
+  "select_related_entities": {
+    "query": "select r.id as rel_id, r.#[source_fk], r.#[target_fk], s.name as source_name, t.name as target_name, r.created_at from #[relation_table] r join #[source_table] s on r.#[source_fk] = s.id join #[target_table] t on r.#[target_fk] = t.id",
+    "returns": ["rel_id", "source_id", "target_id", "source_name", "target_name", "created_at"],
     "args": {
-      "song_ids": { "item_type": "integer" }
+      "relation_table": {
+        "enumif": {
+          "source_fk": {
+            "show_id": ["rel_show_song"],
+            "song_id": ["rel_show_song"],
+            "artist_id": ["rel_artist_show"]
+          },
+          "target_fk": {
+            "show_id": ["rel_artist_show"],
+            "song_id": ["rel_show_song"],
+            "artist_id": ["rel_artist_song"]
+          }
+        }
+      },
+      "source_fk": { "enum": ["show_id", "song_id", "artist_id"] },
+      "target_fk": { "enum": ["show_id", "song_id", "artist_id"] },
+      "source_table": { "enum": ["shows", "songs", "artists"] },
+      "target_table": { "enum": ["shows", "songs", "artists"] }
     }
   },
-  "select_songs_via_shows": {
-    "query": "select distinct g.* from songs g join rel_show_song r on g.id = r.song_id where r.show_id in :[show_ids]",
-    "returns": ["id", "name", "artist_id", "created_at", "updated_at", "status"],
+  "select_entities_via_relation": {
+    "query": "select distinct t.* from #[target_table] t join #[relation_table] r on t.id = r.#[target_fk] where r.#[source_fk] in :[source_ids]",
+    "returns": ["id", "name", "artist_id", "context", "created_at", "updated_at", "status"],
     "args": {
-      "show_ids": { "item_type": "integer" }
+      "target_table": { "enum": ["shows", "songs", "artists"] },
+      "relation_table": {
+        "enumif": {
+          "source_fk": {
+            "show_id": ["rel_show_song"],
+            "song_id": ["rel_show_song"],
+            "artist_id": ["rel_artist_show"]
+          },
+          "target_fk": {
+            "show_id": ["rel_artist_show"],
+            "song_id": ["rel_show_song"],
+            "artist_id": ["rel_artist_song"]
+          }
+        }
+      },
+      "source_fk": { "enum": ["show_id", "song_id", "artist_id"] },
+      "target_fk": { "enum": ["show_id", "song_id", "artist_id"] },
+      "source_ids": { "item_type": "integer" }
     }
   },
   "select_songs_via_artists": {
