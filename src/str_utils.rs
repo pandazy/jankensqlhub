@@ -31,6 +31,11 @@ pub fn is_in_quotes(sql: &str, pos: usize) -> bool {
     in_single_quote || in_double_quote
 }
 
+/// Quote an identifier properly for SQL (for table names)
+pub fn quote_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace("\"", "\"\""))
+}
+
 /// Split multi-statement SQL into individual statements (respects quote boundaries)
 pub fn split_sql_statements(sql: &str) -> Vec<String> {
     let mut statements = Vec::new();

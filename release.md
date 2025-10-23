@@ -1,53 +1,40 @@
-# Release Notes v0.6.1
+# Release Notes v0.7.0
 
-## ✨ **New Feature: Conditional Enum Constraints (`enumif`)**
+## 🔄 **Major Refactoring: Database Backend Separation**
 
-### Conditional Enum Constraint Support
-- **NEW**: Added `enumif` constraint for conditional enum validation
-- **Purpose**: Enables parameter validation where allowed values depend on other parameter values
-- **Conditional Parameters**: Can reference any primitive type (string, number, boolean), not just enum values
-- **Multiple Conditions**: If multiple conditional parameters are specified, they're evaluated alphabetically
+### Architecture Restructuring
+- **MODULAR EXECUTION**: Split `runner.rs` into DB-independent and DB-specific modules
+- **CLEAN SEPARATION**: Database logic now cleanly separated by backend
+- **MULTI-DB PREPARED**: Architecture ready for PostgreSQL and other database backends
 
-### Syntax
-```json
-{
-  "parameter_name": {
-    "enumif": {
-      "conditional_param": {
-        "condition_value1": ["allowed1", "allowed2"],
-        "condition_value2": ["different1", "different2"]
-      }
-    }
-  }
-}
+### Module Structure Changes
+**Before:**
+```
+src/runner.rs  # Mixed concerns: common + SQLite logic
 ```
 
-### Examples
-```json
-{
-  "media_source": {
-    "enumif": {
-      "media_type": {
-        "song": ["artist", "album", "title"],
-        "show": ["channel", "category", "episodes"]
-      }
-    }
-  },
-  "priority": {
-    "enumif": {
-      "severity": {
-        "high": ["urgent", "immediate"],
-        "low": ["optional", "backlog"]
-      }
-    }
-  }
-}
+**After:**
+```
+src/runner.rs           # Common interface, QueryRunner trait, re-exports
+src/runner_sqlite.rs    # SQLite-specific implementations
+src/runner_postgres.rs  # Future PostgreSQL implementations
 ```
 
-### Validation Behavior
-- Conditional parameter value must match a defined condition
-- Parameter value must be in the allowed array for the matching condition
-- Multiple conditional parameters evaluated alphabetically (first match wins)
+### Benefits
+- **Maintainability**: Database-specific logic isolated per backend
+- **Extensibility**: Easy to add new database backends
+- **Clean APIs**: Each backend has dedicated implementation
+
+### Implementation Details
+- **`src/runner.rs`**: `QueryRunner` trait, common utilities, module coordination
+- **`src/runner_sqlite.rs`**: SQLite type conversions, prepared statements, transaction handling
+- **`src/str_utils.rs`**: Moved `quote_identifier()` utility function
+- **Direct API**: Simplified to use `query_run_sqlite()` directly
+
+### Backward Compatibility
+- **Zero Breaking Changes**: All existing code continues to work
+- **Same Public API**: `query_run_sqlite()`, `QueryRunner` trait unchanged
+- **Seamless Upgrade**: Transparent architectural improvement
 
 ---
-**Version 0.6.1** - Added conditional enum constraints (`enumif`)
+**Version 0.7.0** - Database backend separation and modular execution architecture

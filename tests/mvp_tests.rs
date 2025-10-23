@@ -1,4 +1,4 @@
-use jankensqlhub::{DatabaseConnection, QueryDefinitions, QueryRunner};
+use jankensqlhub::{QueryDefinitions, query_run_sqlite};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -14,17 +14,15 @@ fn setup_db() -> Connection {
 #[test]
 fn test_sqlite_select_all_no_params() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute(
         "INSERT INTO source VALUES (1, 'John', NULL), (2, 'Jane', NULL)",
         [],
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     let params = serde_json::json!({});
-    let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_all", &params).unwrap();
     assert_eq!(result.data.len(), 2);
     assert!(
         result
@@ -41,17 +39,14 @@ fn test_sqlite_select_all_no_params() {
 #[test]
 fn test_sqlite_insert_with_params() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     let params = serde_json::json!({"name": "NewGuy"});
-    let insert_result = db_conn
-        .query_run(&queries, "insert_single", &params)
-        .unwrap();
+    let insert_result = query_run_sqlite(&mut conn, &queries, "insert_single", &params).unwrap();
     assert!(insert_result.data.is_empty());
 
     let params = serde_json::json!({});
-    let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_all", &params).unwrap();
     assert_eq!(result.data.len(), 1);
     assert_eq!(
         result.data[0],
@@ -62,20 +57,18 @@ fn test_sqlite_insert_with_params() {
 #[test]
 fn test_sqlite_update_with_params() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'John', NULL)", [])
         .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     // Update
     // Note: my_action doesn't use table name parameters, so it doesn't need "source"
     let params = serde_json::json!({"new_id": 10, "new_name": "NewJohn", "old_id": 1});
-    db_conn.query_run(&queries, "my_action", &params).unwrap();
+    query_run_sqlite(&mut conn, &queries, "my_action", &params).unwrap();
 
     // Verify by select specific with new id - returns structured data now
     let params = serde_json::json!({"id": 10, "name": "NewJohn", "source": "source"});
-    let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "my_list", &params).unwrap();
     assert_eq!(
         result.data,
         vec![serde_json::json!({"id": 10, "name": "NewJohn"})]
@@ -84,7 +77,7 @@ fn test_sqlite_update_with_params() {
 
 #[test]
 fn test_sqlite_blob_column_type() {
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute("CREATE TABLE test_table (id INTEGER, data BLOB)", [])
         .unwrap();
     conn.execute(
@@ -92,8 +85,6 @@ fn test_sqlite_blob_column_type() {
         [],
     )
     .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let json_definitions = serde_json::json!({
         "select_blob": {
@@ -106,7 +97,7 @@ fn test_sqlite_blob_column_type() {
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
     let params = serde_json::json!({});
-    let result = db_conn.query_run(&queries, "select_blob", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_blob", &params).unwrap();
 
     assert_eq!(result.data.len(), 2);
     assert_eq!(result.data[0].get("id"), Some(&serde_json::json!(1)));
@@ -120,14 +111,12 @@ fn test_sqlite_blob_column_type() {
 
 #[test]
 fn test_boolean_params() {
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute(
         "INSERT INTO source VALUES (1, 'active', 1), (2, 'inactive', 0)",
         [],
     )
     .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let json_definitions = serde_json::json!({
         "insert_with_bool": {
@@ -150,20 +139,14 @@ fn test_boolean_params() {
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
     let params = serde_json::json!({"id": 3, "name": "user3", "active": true});
-    let insert_result = db_conn
-        .query_run(&queries, "insert_with_bool", &params)
-        .unwrap();
+    let insert_result = query_run_sqlite(&mut conn, &queries, "insert_with_bool", &params).unwrap();
     assert!(insert_result.data.is_empty());
 
     let params = serde_json::json!({"id": 4, "name": "user4", "active": false});
-    db_conn
-        .query_run(&queries, "insert_with_bool", &params)
-        .unwrap();
+    query_run_sqlite(&mut conn, &queries, "insert_with_bool", &params).unwrap();
 
     let params = serde_json::json!({"active": true});
-    let result = db_conn
-        .query_run(&queries, "select_by_bool", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_by_bool", &params).unwrap();
 
     assert_eq!(result.data.len(), 2);
     assert!(
@@ -198,14 +181,12 @@ fn test_loading_from_json_value() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (42, 'Test', NULL)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     let params = serde_json::json!({"id": 42});
-    let result = db_conn.query_run(&queries, "test_select", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "test_select", &params).unwrap();
     assert!(!result.data.is_empty());
     assert_eq!(
         result.data[0],
@@ -213,11 +194,11 @@ fn test_loading_from_json_value() {
     );
 
     let params = serde_json::json!({"id": 99, "name": "JsonLoaded"});
-    let insert_result = db_conn.query_run(&queries, "test_insert", &params).unwrap();
+    let insert_result = query_run_sqlite(&mut conn, &queries, "test_insert", &params).unwrap();
     assert!(insert_result.data.is_empty());
 
     let params = serde_json::json!({"id": 99});
-    let result = db_conn.query_run(&queries, "test_select", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "test_select", &params).unwrap();
     assert!(!result.data.is_empty());
     assert_eq!(
         result.data[0],
@@ -228,27 +209,21 @@ fn test_loading_from_json_value() {
 #[test]
 fn test_sqlite_float_params() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute(
         "INSERT INTO source VALUES (1, 'John', 5.5), (2, 'Jane', 8.2)",
         [],
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Insert with float
     let params = serde_json::json!({"id": 3, "name": "Bob", "score": 7.0});
-    db_conn
-        .query_run(&queries, "insert_with_float", &params)
-        .unwrap();
+    query_run_sqlite(&mut conn, &queries, "insert_with_float", &params).unwrap();
 
     // Select with float param (score > 6.0)
     // Should return Jane (8.2) and Bob (7.0), but not John (5.5)
     let params = serde_json::json!({"min_score": 6.0});
-    let result = db_conn
-        .query_run(&queries, "select_with_float", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_with_float", &params).unwrap();
 
     // Should return both Bob (id=3) and Jane (id=2) as structured objects
     assert_eq!(result.data.len(), 2);
@@ -268,14 +243,13 @@ fn test_sqlite_float_params() {
 #[test]
 fn test_debug_sql_statements() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'TestUser', NULL)", [])
         .unwrap();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     // Test a simple select query to see the SQL statement
     let params = serde_json::json!({});
-    let result = db_conn.query_run(&queries, "select_all", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_all", &params).unwrap();
 
     // Check that the SQL statement is as expected (lowercase select)
     assert!(
@@ -290,14 +264,12 @@ fn test_debug_sql_statements() {
 #[test]
 fn test_blob_parameter_basics() {
     // MVP test showing blob parameters work with text-to-bytes conversion
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE files (id INTEGER, filename TEXT, content BLOB)",
         [],
     )
     .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let json_definitions = serde_json::json!({
         "save_file": {
@@ -327,13 +299,13 @@ fn test_blob_parameter_basics() {
 
     // Save the file with blob content
     let params = serde_json::json!({"id": 1, "filename": "hello.txt", "content": blob_json});
-    let result = db_conn.query_run(&queries, "save_file", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "save_file", &params).unwrap();
     assert!(result.data.is_empty());
     assert!(result.sql_statements[0].contains("INSERT INTO files"));
 
     // Retrieve the file and verify blob content
     let params = serde_json::json!({"id": 1});
-    let result = db_conn.query_run(&queries, "get_file", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "get_file", &params).unwrap();
 
     assert_eq!(result.data.len(), 1);
     assert_eq!(result.data[0]["filename"], "hello.txt");
@@ -343,14 +315,12 @@ fn test_blob_parameter_basics() {
 #[test]
 fn test_table_name_column_syntax() {
     // Test demonstrating that # syntax works for column names, not just table names
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute(
         "INSERT INTO source VALUES (1, 'John', 8.5), (2, 'Jane', 9.2)",
         [],
     )
     .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let json_definitions = serde_json::json!({
         "select_column": {
@@ -366,9 +336,7 @@ fn test_table_name_column_syntax() {
 
     // Test selecting from the "name" column
     let params = serde_json::json!({"column_name": "name"});
-    let result = db_conn
-        .query_run(&queries, "select_column", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_column", &params).unwrap();
 
     // Should return values ordered alphabetically: Jane, John
     assert_eq!(result.data.len(), 2);
