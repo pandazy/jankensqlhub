@@ -41,12 +41,12 @@ impl QueryDef {
     }
 
     fn check_transaction_keywords(sql: &str) -> Result<()> {
+        let got = "Query contains BEGIN, COMMIT, ROLLBACK, START TRANSACTION, or END TRANSACTION"
+            .to_string();
         if parameters::contains_transaction_keywords(sql) {
             Err(JankenError::ParameterTypeMismatch {
                 expected: "SQL without explicit transaction keywords".to_string(),
-                got:
-                    "Query contains BEGIN, COMMIT, ROLLBACK, START TRANSACTION, or END TRANSACTION"
-                        .to_string(),
+                got,
             })
         } else {
             Ok(())
