@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: jankensqlhub_postgres
+    env_file:
+      - .env.postgres
+    environment:
+      # Override credentials with .env.postgres file (recommended)
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  # Must be set in .env.postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:

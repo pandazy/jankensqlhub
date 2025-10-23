@@ -300,6 +300,10 @@ The `enumif` constraint allows parameter validation based on the values of other
 1. ✅ SQLite (complete)
 2.  PostgreSQL (planned implementation)
 
+## 🐘 PostgreSQL Testing
+
+**JankenSQLHub** supports PostgreSQL testing through experimental modules for future multi-backend support development. See the [operational guide](op.md) for detailed setup instructions for contributors.
+
 ## 📦 Installation & Links
 
 **Install from Crates.io:**
