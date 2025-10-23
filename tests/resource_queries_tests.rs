@@ -1,4 +1,4 @@
-use jankensqlhub::{DatabaseConnection, QueryDefinitions, QueryRunner};
+use jankensqlhub::{QueryDefinitions, query_run_sqlite};
 use rusqlite::Connection;
 
 fn setup_resource_schema() -> Connection {
@@ -123,14 +123,11 @@ fn test_resource_queries_json_loading() {
 #[test]
 fn test_select_by_ids() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
-    let conn = setup_resource_schema();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_resource_schema();
 
     // Test selecting shows by IDs
     let params = serde_json::json!({"resource": "shows", "ids": [1, 2]});
-    let result = db_conn
-        .query_run(&queries, "select_by_ids", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_by_ids", &params).unwrap();
 
     assert_eq!(result.data.len(), 2);
     let names: Vec<String> = result
@@ -145,15 +142,12 @@ fn test_select_by_ids() {
 #[test]
 fn test_select_children() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
-    let conn = setup_resource_schema();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_resource_schema();
 
     // Test selecting songs by artist_id (children of artists)
     let params =
         serde_json::json!({"resource": "songs", "foreign_key": "artist_id", "f_ids": ["1", "2"]});
-    let result = db_conn
-        .query_run(&queries, "select_children", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_children", &params).unwrap();
 
     assert_eq!(result.data.len(), 3); // Thunder and Bass Line for artist 1, Smooth Jazz for artist 2
 
@@ -170,8 +164,7 @@ fn test_select_children() {
 #[test]
 fn test_select_related_entities() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
-    let conn = setup_resource_schema();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_resource_schema();
 
     // Test selecting related shows and songs through rel_show_song
     let params = serde_json::json!({
@@ -181,9 +174,7 @@ fn test_select_related_entities() {
         "source_table": "shows",
         "target_table": "songs"
     });
-    let result = db_conn
-        .query_run(&queries, "select_related_entities", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_related_entities", &params).unwrap();
 
     assert_eq!(result.data.len(), 3); // 3 relationships total
 
@@ -205,8 +196,7 @@ fn test_select_related_entities() {
 #[test]
 fn test_select_entities_via_relation_shows_via_songs() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
-    let conn = setup_resource_schema();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_resource_schema();
 
     // Test selecting shows that have specific songs using the generalized query
     let params = serde_json::json!({
@@ -217,9 +207,8 @@ fn test_select_entities_via_relation_shows_via_songs() {
         "source_ids": [1, 2],
         "foreign_key": "show_id"
     });
-    let result = db_conn
-        .query_run(&queries, "select_entities_via_relation", &params)
-        .unwrap();
+    let result =
+        query_run_sqlite(&mut conn, &queries, "select_entities_via_relation", &params).unwrap();
 
     assert_eq!(result.data.len(), 2); // Show 1 (Thunder), Show 2 (Smooth Jazz)
 
@@ -235,8 +224,7 @@ fn test_select_entities_via_relation_shows_via_songs() {
 #[test]
 fn test_select_entities_via_relation_songs_via_shows() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
-    let conn = setup_resource_schema();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_resource_schema();
 
     // Test selecting songs that belong to specific shows using the generalized query
     let params = serde_json::json!({
@@ -247,9 +235,8 @@ fn test_select_entities_via_relation_songs_via_shows() {
         "source_ids": [1],
         "foreign_key": "song_id"
     });
-    let result = db_conn
-        .query_run(&queries, "select_entities_via_relation", &params)
-        .unwrap();
+    let result =
+        query_run_sqlite(&mut conn, &queries, "select_entities_via_relation", &params).unwrap();
 
     assert_eq!(result.data.len(), 2); // Show 1 has Thunder and Bass Line
 
@@ -265,14 +252,12 @@ fn test_select_entities_via_relation_songs_via_shows() {
 #[test]
 fn test_select_songs_via_artists() {
     let queries = QueryDefinitions::from_file("test_json/resource_queries.json").unwrap();
-    let conn = setup_resource_schema();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_resource_schema();
 
     // Test selecting songs that belong to specific artists
     let params = serde_json::json!({"artist_ids": ["1"]});
-    let result = db_conn
-        .query_run(&queries, "select_songs_via_artists", &params)
-        .unwrap();
+    let result =
+        query_run_sqlite(&mut conn, &queries, "select_songs_via_artists", &params).unwrap();
 
     assert_eq!(result.data.len(), 2); // Artist 1 has Thunder and Bass Line
 

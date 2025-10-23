@@ -1,4 +1,4 @@
-use jankensqlhub::{DatabaseConnection, JankenError, QueryDefinitions, QueryRunner};
+use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
 use rusqlite::Connection;
 
 #[test]
@@ -100,7 +100,7 @@ fn test_enumif_constraint_validation() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE media (id INTEGER PRIMARY KEY, type TEXT, source TEXT, data TEXT)",
         [],
@@ -117,22 +117,18 @@ fn test_enumif_constraint_validation() {
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test valid conditional enum values should work
     let params = serde_json::json!({"media_type": "song", "source": "artist"});
-    let result = db_conn.query_run(&queries, "conditional_enum_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params);
     assert!(result.is_ok(), "Valid conditional enum should work");
 
     let params = serde_json::json!({"media_type": "show", "source": "channel"});
-    let result = db_conn.query_run(&queries, "conditional_enum_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params);
     assert!(result.is_ok(), "Valid conditional enum should work");
 
     // Test invalid conditional enum values should fail
     let params = serde_json::json!({"media_type": "song", "source": "channel"}); // "channel" is not allowed for "song"
-    let err = db_conn
-        .query_run(&queries, "conditional_enum_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("artist"));
@@ -144,9 +140,7 @@ fn test_enumif_constraint_validation() {
     }
 
     let params = serde_json::json!({"media_type": "show", "source": "album"}); // "album" is not allowed for "show"
-    let err = db_conn
-        .query_run(&queries, "conditional_enum_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("channel"));
@@ -159,9 +153,7 @@ fn test_enumif_constraint_validation() {
 
     // Test with unknown media_type that violates the enum constraint first - should fail
     let params = serde_json::json!({"media_type": "unknown", "source": "any_value"}); // "unknown" is not in enum ["song", "show"]
-    let err = db_conn
-        .query_run(&queries, "conditional_enum_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("song") && expected.contains("show"));
@@ -172,9 +164,7 @@ fn test_enumif_constraint_validation() {
 
     // Test with missing conditional parameter - should fail
     let params = serde_json::json!({"source": "artist"}); // missing media_type
-    let err = db_conn
-        .query_run(&queries, "conditional_enum_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
         JankenError::ParameterNotProvided(name) => {
             assert_eq!(name, "media_type");
@@ -210,20 +200,16 @@ fn test_enumif_constraint_no_matching_condition() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE media (id INTEGER PRIMARY KEY, type TEXT, source TEXT, data TEXT)",
         [],
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test with valid enum value but no matching enumif condition - should fail
     let params = serde_json::json!({"media_type": "movie", "source": "director"}); // "movie" not in enumif conditions
-    let err = db_conn
-        .query_run(&queries, "conditional_enum_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(
@@ -242,9 +228,7 @@ fn test_enumif_constraint_no_matching_condition() {
 
     // Test with another value not covered by enumif
     let params = serde_json::json!({"media_type": "book", "source": "author"}); // "book" not in enumif conditions
-    let err = db_conn
-        .query_run(&queries, "conditional_enum_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(
@@ -263,11 +247,11 @@ fn test_enumif_constraint_no_matching_condition() {
 
     // Verify that values covered by enumif conditions work correctly
     let params = serde_json::json!({"media_type": "song", "source": "artist"});
-    let result = db_conn.query_run(&queries, "conditional_enum_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params);
     assert!(result.is_ok(), "Valid enumif condition should work");
 
     let params = serde_json::json!({"media_type": "show", "source": "channel"});
-    let result = db_conn.query_run(&queries, "conditional_enum_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params);
     assert!(result.is_ok(), "Valid enumif condition should work");
 }
 
@@ -330,7 +314,7 @@ fn test_enumif_primitive_conditional_parameter_validation() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE config (key_name TEXT, value_type TEXT, allowed_values TEXT)",
         [],
@@ -347,32 +331,29 @@ fn test_enumif_primitive_conditional_parameter_validation() {
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test conditional parameter as any string (no enum restriction)
 
     // Test with different string values for key_name - should work as long as conditions are defined
     let params = serde_json::json!({"key_name": "database_host", "value_type": "string", "allowed_values": "host.example.com"});
-    let result = db_conn.query_run(&queries, "primitive_string_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_string_condition", &params);
     assert!(
         result.is_ok(),
         "String conditional parameter should work when condition matches"
     );
 
     let params = serde_json::json!({"key_name": "database_port", "value_type": "integer", "allowed_values": "5432"});
-    let result = db_conn.query_run(&queries, "primitive_string_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_string_condition", &params);
     assert!(result.is_ok(), "Integer value for port should work");
 
     let params =
         serde_json::json!({"key_name": "timeout", "value_type": "float", "allowed_values": "30.5"});
-    let result = db_conn.query_run(&queries, "primitive_string_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_string_condition", &params);
     assert!(result.is_ok(), "Float value for timeout should work");
 
     // Test validation failure when value doesn't match condition
     let params = serde_json::json!({"key_name": "database_host", "value_type": "integer", "allowed_values": "host.example.com"}); // "integer" not allowed for "database_host"
-    let err = db_conn
-        .query_run(&queries, "primitive_string_condition", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn, &queries, "primitive_string_condition", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("string"));
@@ -385,23 +366,22 @@ fn test_enumif_primitive_conditional_parameter_validation() {
 
     // Test with different integer values for level
     let params = serde_json::json!({"level": 0, "severity": "info", "message": "System started"});
-    let result = db_conn.query_run(&queries, "primitive_number_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_number_condition", &params);
     assert!(result.is_ok(), "Level 0 should allow info severity");
 
     let params = serde_json::json!({"level": 2, "severity": "error", "message": "Database connection failed"});
-    let result = db_conn.query_run(&queries, "primitive_number_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_number_condition", &params);
     assert!(result.is_ok(), "Level 2 should allow error severity");
 
     let params =
         serde_json::json!({"level": 10, "severity": "critical", "message": "System meltdown"});
-    let result = db_conn.query_run(&queries, "primitive_number_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_number_condition", &params);
     assert!(result.is_ok(), "Level 10 should allow critical severity");
 
     // Test validation failure for undefined level
     let params = serde_json::json!({"level": 5, "severity": "warning", "message": "Unknown level"}); // Level 5 not defined in conditions
-    let err = db_conn
-        .query_run(&queries, "primitive_number_condition", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn, &queries, "primitive_number_condition", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(
@@ -423,12 +403,12 @@ fn test_enumif_primitive_conditional_parameter_validation() {
     // Test with boolean conditional parameter
     let params =
         serde_json::json!({"user_id": "user123", "is_admin": true, "permissions": "admin"});
-    let result = db_conn.query_run(&queries, "primitive_boolean_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_boolean_condition", &params);
     assert!(result.is_ok(), "Admin user should allow admin permissions");
 
     let params =
         serde_json::json!({"user_id": "user456", "is_admin": false, "permissions": "write"});
-    let result = db_conn.query_run(&queries, "primitive_boolean_condition", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "primitive_boolean_condition", &params);
     assert!(
         result.is_ok(),
         "Regular user should allow write permissions"
@@ -437,9 +417,8 @@ fn test_enumif_primitive_conditional_parameter_validation() {
     // Test validation failure when boolean condition not met
     let params =
         serde_json::json!({"user_id": "user789", "is_admin": false, "permissions": "admin"}); // Regular user trying to get admin permissions
-    let err = db_conn
-        .query_run(&queries, "primitive_boolean_condition", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn, &queries, "primitive_boolean_condition", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("read") && expected.contains("write"));
@@ -744,20 +723,22 @@ fn test_enumif_constraint_non_primitive_conditional_parameter_validation_error()
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE media (id INTEGER PRIMARY KEY, type TEXT, source TEXT, data TEXT)",
         [],
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test with array as conditional parameter - should fail with basic type validation for the constrained parameter
     let params = serde_json::json!({"media_type": [1, 2, 3], "source": "artist"});
-    let err = db_conn
-        .query_run(&queries, "enumif_with_array_conditional", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "enumif_with_array_conditional",
+        &params,
+    )
+    .unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             // Since media_type has an enum constraint, it expects string type
@@ -771,9 +752,13 @@ fn test_enumif_constraint_non_primitive_conditional_parameter_validation_error()
 
     // Test with object as conditional parameter - should fail with basic type validation
     let params = serde_json::json!({"media_type": {"nested": "object"}, "source": "channel"});
-    let err = db_conn
-        .query_run(&queries, "enumif_with_array_conditional", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "enumif_with_array_conditional",
+        &params,
+    )
+    .unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             // Since media_type has an enum constraint, it expects string type
@@ -787,9 +772,13 @@ fn test_enumif_constraint_non_primitive_conditional_parameter_validation_error()
 
     // Test with null as conditional parameter - should fail with basic type validation
     let params = serde_json::json!({"media_type": null, "source": "artist"});
-    let err = db_conn
-        .query_run(&queries, "enumif_with_array_conditional", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "enumif_with_array_conditional",
+        &params,
+    )
+    .unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             // Since media_type has an enum constraint, it expects string type
@@ -801,7 +790,12 @@ fn test_enumif_constraint_non_primitive_conditional_parameter_validation_error()
 
     // Test with valid primitive conditional parameter - should work
     let params = serde_json::json!({"media_type": "song", "source": "artist"});
-    let result = db_conn.query_run(&queries, "enumif_with_array_conditional", &params);
+    let result = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "enumif_with_array_conditional",
+        &params,
+    );
     assert!(
         result.is_ok(),
         "Valid primitive conditional parameter should work"
@@ -863,23 +857,21 @@ fn test_enumif_constraint_multiple_conditions_alphabetical() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE classified (priority TEXT, category TEXT, tags TEXT)",
         [],
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // First insert some valid data
     let params = serde_json::json!({"priority": "high", "category": "work", "tags": "meeting"});
-    let result = db_conn.query_run(&queries, "insert_classified", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "insert_classified", &params);
     assert!(result.is_ok(), "Valid insert should work");
 
     // Test that category conditions take precedence (processed first alphabetically) - query should work
     let params = serde_json::json!({"priority": "high", "category": "work", "tags": "meeting"});
-    let result = db_conn.query_run(&queries, "select_classified", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "select_classified", &params);
     assert!(
         result.is_ok(),
         "Category condition should be checked first alphabetically"
@@ -887,9 +879,7 @@ fn test_enumif_constraint_multiple_conditions_alphabetical() {
 
     // Test invalid tags - should fail
     let params = serde_json::json!({"priority": "high", "category": "work", "tags": "immediate"}); // "immediate" from priority but "meeting" from category
-    let err = db_conn
-        .query_run(&queries, "insert_classified", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "insert_classified", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             // Should show category conditions (processed first alphabetically)
@@ -903,14 +893,12 @@ fn test_enumif_constraint_multiple_conditions_alphabetical() {
 
     // Test with different category - should allow different values
     let params = serde_json::json!({"priority": "low", "category": "personal", "tags": "family"});
-    let result = db_conn.query_run(&queries, "insert_classified", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "insert_classified", &params);
     assert!(result.is_ok(), "Personal category should allow family tags");
 
     // Test invalid tags for personal category
     let params = serde_json::json!({"priority": "low", "category": "personal", "tags": "optional"}); // "optional" from priority but not in personal category
-    let err = db_conn
-        .query_run(&queries, "insert_classified", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "insert_classified", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             // Should show personal category conditions

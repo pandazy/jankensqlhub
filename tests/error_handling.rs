@@ -1,6 +1,4 @@
-use jankensqlhub::{
-    DatabaseConnection, JankenError, QueryDefinitions, QueryRunner, query_run_sqlite,
-};
+use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -16,8 +14,7 @@ fn setup_db() -> Connection {
 #[test]
 fn test_query_not_found() {
     // Test QueryNotFound error for non-existent query names
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     // Load valid queries from inline JSON
     let queries_json = serde_json::json!({
@@ -36,9 +33,7 @@ fn test_query_not_found() {
 
     // Try to run a query that doesn't exist
     let params = serde_json::json!({});
-    let err = db_conn
-        .query_run(&queries, "non_existent_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "non_existent_query", &params).unwrap_err();
 
     match err {
         JankenError::QueryNotFound(name) => {
@@ -105,13 +100,10 @@ fn test_parameter_type_mismatch() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     let params = serde_json::json!({"id": "not_int"}); // id should be integer but got string
-    let err = db_conn
-        .query_run(&queries, "test_select", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "test_select", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "integer");
@@ -137,20 +129,16 @@ fn test_parameter_validation_range() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (50, 'Test', NULL)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     let params = serde_json::json!({"id": 50});
-    let result = db_conn.query_run(&queries, "select_with_range", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "select_with_range", &params);
     assert!(result.is_ok());
 
     let params = serde_json::json!({"id": 0});
-    let err = db_conn
-        .query_run(&queries, "select_with_range", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "select_with_range", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("between 1 and 100"));
@@ -175,8 +163,7 @@ fn test_parameter_validation_range_non_numeric() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     let cases = vec![
         (serde_json::json!({"id": "not_int"}), "\"not_int\""),
@@ -185,9 +172,7 @@ fn test_parameter_validation_range_non_numeric() {
     ];
 
     for (params, expected_got) in cases {
-        let err = db_conn
-            .query_run(&queries, "select_with_range", &params)
-            .unwrap_err();
+        let err = query_run_sqlite(&mut conn, &queries, "select_with_range", &params).unwrap_err();
         match err {
             JankenError::ParameterTypeMismatch { expected, got } => {
                 assert_eq!(expected, "integer");
@@ -230,23 +215,20 @@ fn test_parameter_validation_enum() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'active', NULL)", [])
         .unwrap();
     conn.execute("INSERT INTO source VALUES (3, 'test', NULL)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test string enum - should work
     let params = serde_json::json!({"status": "active"});
-    let result = db_conn.query_run(&queries, "select_with_enum_string", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "select_with_enum_string", &params);
     assert!(result.is_ok());
 
     let params = serde_json::json!({"status": "unknown"});
-    let err = db_conn
-        .query_run(&queries, "select_with_enum_string", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn, &queries, "select_with_enum_string", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("active"));
@@ -259,13 +241,11 @@ fn test_parameter_validation_enum() {
 
     // Test integer enum - should work
     let params = serde_json::json!({"level": 3});
-    let result = db_conn.query_run(&queries, "select_with_enum_int", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "select_with_enum_int", &params);
     assert!(result.is_ok());
 
     let params = serde_json::json!({"level": 10}); // Not in enum [1,2,3,4,5]
-    let err = db_conn
-        .query_run(&queries, "select_with_enum_int", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "select_with_enum_int", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("1"));
@@ -279,27 +259,26 @@ fn test_parameter_validation_enum() {
     }
 
     // Test table_name enum - should validate enum values but also pass normal table_name validation
-    let conn = Connection::open_in_memory().unwrap();
-    conn.execute(
-        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, score REAL)",
-        [],
-    )
-    .unwrap();
-    conn.execute("INSERT INTO users VALUES (1, 'John', 95.0)", [])
+    let mut conn2 = Connection::open_in_memory().unwrap();
+    conn2
+        .execute(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, score REAL)",
+            [],
+        )
         .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    conn2
+        .execute("INSERT INTO users VALUES (1, 'John', 95.0)", [])
+        .unwrap();
 
     // Should work with enum value that's a valid table name
     let params = serde_json::json!({"table_name": "users"});
-    let result = db_conn.query_run(&queries, "select_with_enum_table", &params);
+    let result = query_run_sqlite(&mut conn2, &queries, "select_with_enum_table", &params);
     assert!(result.is_ok());
 
     // Should fail with enum value that's not in the allowed list
     let params = serde_json::json!({"table_name": "admin"}); // "admin" is not in enum ["users", "products", "orders"]
-    let err = db_conn
-        .query_run(&queries, "select_with_enum_table", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn2, &queries, "select_with_enum_table", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("users"));
@@ -332,12 +311,11 @@ fn test_sqlite_sql_syntax_error() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     // This should fail with SQLite error due to invalid SQL syntax
     let params = serde_json::json!({});
-    let result = db_conn.query_run(&queries, "bad_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "bad_query", &params);
     assert!(result.is_err());
 
     let err = result.unwrap_err();
@@ -371,13 +349,12 @@ fn test_regex_error() {
     // so the query definition will be created successfully
     assert!(queries.is_ok());
 
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     // Now try to run it with a parameter that would trigger regex validation
     let params = serde_json::json!({"pattern": "test_value"});
 
-    let result = db_conn.query_run(&queries.unwrap(), "regex_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries.unwrap(), "regex_query", &params);
     // This should fail because regex compilation fails during validation
     assert!(result.is_err());
 
@@ -417,7 +394,7 @@ fn test_parameter_validation_pattern() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute(
         "INSERT INTO source VALUES (1, 'test@example.com', NULL)",
         [],
@@ -426,20 +403,16 @@ fn test_parameter_validation_pattern() {
     conn.execute("INSERT INTO source VALUES (2, '555-123-4567', NULL)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     let params = serde_json::json!({"email": "user@domain.com"});
-    let result = db_conn.query_run(&queries, "email_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "email_query", &params);
     assert!(result.is_ok());
 
     let params = serde_json::json!({"phone": "555-123-4567"});
-    let result = db_conn.query_run(&queries, "phone_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "phone_query", &params);
     assert!(result.is_ok());
 
     let params = serde_json::json!({"email": "invalid-email"});
-    let err = db_conn
-        .query_run(&queries, "email_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "email_query", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("string matching pattern"));
@@ -449,9 +422,7 @@ fn test_parameter_validation_pattern() {
     }
 
     let params = serde_json::json!({"phone": "invalid-phone"});
-    let err = db_conn
-        .query_run(&queries, "phone_query", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "phone_query", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("string matching pattern"));
@@ -486,17 +457,14 @@ fn test_parameter_validation_pattern_non_string() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (123, 'test', NULL)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Integer parameter with pattern constraint should fail with "string" error
     let params = serde_json::json!({"id": 123});
-    let err = db_conn
-        .query_run(&queries, "select_with_pattern_int", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn, &queries, "select_with_pattern_int", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "string");
@@ -509,9 +477,8 @@ fn test_parameter_validation_pattern_non_string() {
 
     // Boolean parameter with pattern constraint should fail with "string" error
     let params = serde_json::json!({"active": true});
-    let err = db_conn
-        .query_run(&queries, "select_with_pattern_bool", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn, &queries, "select_with_pattern_bool", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "string");
@@ -540,7 +507,7 @@ fn test_parameter_validation_pattern_table_name() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE test_users (id INTEGER PRIMARY KEY, name TEXT, score REAL)",
         [],
@@ -556,8 +523,6 @@ fn test_parameter_validation_pattern_table_name() {
     conn.execute("INSERT INTO test_products VALUES (2, 'product1', 95.5)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test valid table names that match the pattern
     let valid_params = vec![
         serde_json::json!({"table_name": "test_users"}),
@@ -565,7 +530,7 @@ fn test_parameter_validation_pattern_table_name() {
     ];
 
     for params in valid_params {
-        let result = db_conn.query_run(&queries, "table_pattern_query", &params);
+        let result = query_run_sqlite(&mut conn, &queries, "table_pattern_query", &params);
         assert!(result.is_ok(), "Expected success for valid pattern match");
     }
 
@@ -587,9 +552,8 @@ fn test_parameter_validation_pattern_table_name() {
     ];
 
     for (params, expected_got) in invalid_cases {
-        let err = db_conn
-            .query_run(&queries, "table_pattern_query", &params)
-            .unwrap_err();
+        let err =
+            query_run_sqlite(&mut conn, &queries, "table_pattern_query", &params).unwrap_err();
         match err {
             JankenError::ParameterTypeMismatch { expected, got } => {
                 assert!(
@@ -605,7 +569,7 @@ fn test_parameter_validation_pattern_table_name() {
 
 #[test]
 fn test_table_name_parameter_security_and_validation() {
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE safe_table (id INTEGER PRIMARY KEY, name TEXT)",
         [],
@@ -613,8 +577,6 @@ fn test_table_name_parameter_security_and_validation() {
     .unwrap();
     conn.execute("INSERT INTO safe_table VALUES (1, 'safe')", [])
         .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let json_definitions = serde_json::json!({
         "table_injection_test": {
@@ -658,9 +620,8 @@ fn test_table_name_parameter_security_and_validation() {
     ];
 
     for (params, expected_type, expected_got) in type_mismatch_cases {
-        let err = db_conn
-            .query_run(&queries, "table_injection_test", &params)
-            .unwrap_err();
+        let err =
+            query_run_sqlite(&mut conn, &queries, "table_injection_test", &params).unwrap_err();
         match err {
             JankenError::ParameterTypeMismatch { expected, got } => {
                 assert_eq!(
@@ -701,7 +662,7 @@ fn test_table_name_parameter_security_and_validation() {
 
     for (malicious_table_name, description) in malicious_and_invalid_params {
         let params = serde_json::json!({"table_name": malicious_table_name, "id": 1});
-        let result = db_conn.query_run(&queries, "table_injection_test", &params);
+        let result = query_run_sqlite(&mut conn, &queries, "table_injection_test", &params);
         assert!(
             result.is_err(),
             "Expected error for {description}: '{malicious_table_name}' should be rejected"
@@ -711,7 +672,7 @@ fn test_table_name_parameter_security_and_validation() {
     // Test valid table names should work
     let valid_table_name = "safe_table";
     let params = serde_json::json!({"table_name": valid_table_name, "id": 1});
-    let result = db_conn.query_run(&queries, "table_injection_test", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "table_injection_test", &params);
     assert!(
         result.is_ok(),
         "Expected valid table name '{valid_table_name}' to work"
@@ -746,15 +707,13 @@ fn test_parameter_validation_range_wrong_type() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'test', NULL)", [])
         .unwrap();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let params = serde_json::json!({"name": "test"});
-    let err = db_conn
-        .query_run(&queries, "select_with_range_string", &params)
-        .unwrap_err();
+    let err =
+        query_run_sqlite(&mut conn, &queries, "select_with_range_string", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "numeric type or blob");
@@ -764,9 +723,7 @@ fn test_parameter_validation_range_wrong_type() {
     }
 
     let params = serde_json::json!({"id": true});
-    let err = db_conn
-        .query_run(&queries, "select_with_range_bool", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "select_with_range_bool", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "numeric type or blob");
@@ -996,13 +953,10 @@ fn test_table_name_validation_error() {
     ];
 
     for table_name in invalid_names {
-        let conn = Connection::open_in_memory().unwrap();
-        let mut db_conn = DatabaseConnection::SQLite(conn);
+        let mut conn = Connection::open_in_memory().unwrap();
 
         let params = serde_json::json!({"table_name": table_name});
-        let err = db_conn
-            .query_run(&queries, "table_query", &params)
-            .unwrap_err();
+        let err = query_run_sqlite(&mut conn, &queries, "table_query", &params).unwrap_err();
         match err {
             JankenError::ParameterTypeMismatch { expected, got } => {
                 assert_eq!(
@@ -1018,15 +972,13 @@ fn test_table_name_validation_error() {
     }
 
     // Test valid table name should work
-    let conn = Connection::open_in_memory().unwrap();
-    conn.execute("CREATE TABLE valid_name (id INTEGER)", [])
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE valid_name (id INTEGER PRIMARY KEY)", [])
         .unwrap();
     conn.execute("INSERT INTO valid_name VALUES (42)", [])
         .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
     let params = serde_json::json!({"table_name": "valid_name"});
-    let result = db_conn.query_run(&queries, "table_query", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "table_query", &params);
     assert!(result.is_ok(), "Valid table name should work");
     let data = result.unwrap();
     assert_eq!(data.data.len(), 1);
@@ -1215,14 +1167,11 @@ fn test_list_parameter_constraint_validation_errors() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     // Test list with mixed item types - should fail at first invalid item (index 1)
     let params = serde_json::json!({"ints": [1, "invalid_string", 3.0, true]});
-    let err = db_conn
-        .query_run(&queries, "list_int_constraints", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "integer at index 1");
@@ -1233,9 +1182,7 @@ fn test_list_parameter_constraint_validation_errors() {
 
     // Test list with string pattern - invalid names should fail
     let params = serde_json::json!({"names": ["Alice", "lowercase_name", "123invalid"]});
-    let err = db_conn
-        .query_run(&queries, "list_string_pattern", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "list_string_pattern", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("string matching pattern"));
@@ -1246,9 +1193,7 @@ fn test_list_parameter_constraint_validation_errors() {
 
     // Test list with float range - out of range values should fail
     let params = serde_json::json!({"scores": [85.5, -5.0, 150.5, 92.0]});
-    let err = db_conn
-        .query_run(&queries, "list_float_range", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "list_float_range", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("value between 0 and 100"));
@@ -1259,9 +1204,7 @@ fn test_list_parameter_constraint_validation_errors() {
 
     // Test list with enum - invalid enum values should fail
     let params = serde_json::json!({"statuses": ["active", "unknown_status", "pending"]});
-    let err = db_conn
-        .query_run(&queries, "list_enum", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "list_enum", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("active"));
@@ -1274,9 +1217,7 @@ fn test_list_parameter_constraint_validation_errors() {
 
     // Test empty list validation (should fail at runner level, not constraint level)
     let params = serde_json::json!({"ints": []});
-    let err = db_conn
-        .query_run(&queries, "list_int_constraints", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "non-empty list");
@@ -1287,9 +1228,7 @@ fn test_list_parameter_constraint_validation_errors() {
 
     // Test list with wrong basic type (pass non-array)
     let params = serde_json::json!({"ints": "not_an_array"});
-    let err = db_conn
-        .query_run(&queries, "list_int_constraints", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "list");
@@ -1535,11 +1474,9 @@ fn test_blob_parameter_validation() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute("CREATE TABLE blob_test (id INTEGER, data BLOB)", [])
         .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     // Test valid blob data - convert text to within size range
     let valid_text = "Hello"; // 5 bytes when UTF-8 encoded
@@ -1549,15 +1486,13 @@ fn test_blob_parameter_validation() {
         .map(|&b| serde_json::json!(b))
         .collect();
     let params = serde_json::json!({"id": 1, "data": valid_blob_data});
-    let result = db_conn.query_run(&queries, "insert_blob", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "insert_blob", &params);
     assert!(result.is_ok(), "Valid blob within size range should work");
 
     // Test blob that's too small (0 bytes)
     let empty_blob = serde_json::json!([]);
     let params = serde_json::json!({"id": 2, "data": empty_blob});
-    let err = db_conn
-        .query_run(&queries, "insert_blob", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("blob size between 1 and 100 bytes"));
@@ -1571,9 +1506,7 @@ fn test_blob_parameter_validation() {
     let large_blob_json: Vec<serde_json::Value> =
         large_blob.iter().map(|&b| serde_json::json!(b)).collect();
     let params = serde_json::json!({"id": 3, "data": large_blob_json});
-    let err = db_conn
-        .query_run(&queries, "insert_blob", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("blob size between 1 and 100 bytes"));
@@ -1584,9 +1517,7 @@ fn test_blob_parameter_validation() {
 
     // Test invalid blob format - not an array
     let params = serde_json::json!({"id": 4, "data": "not_an_array"});
-    let err = db_conn
-        .query_run(&queries, "insert_blob", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "blob");
@@ -1598,9 +1529,7 @@ fn test_blob_parameter_validation() {
     // Test invalid blob data - array with non-byte values (over 255)
     let invalid_bytes = serde_json::json!([300, 400]); // Values over 255
     let params = serde_json::json!({"id": 5, "data": invalid_bytes});
-    let err = db_conn
-        .query_run(&queries, "insert_blob", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("byte values (0-255) at index 0"));
@@ -1612,9 +1541,7 @@ fn test_blob_parameter_validation() {
     // Test invalid blob data - array with non-numbers
     let invalid_bytes = serde_json::json!(["not", "numbers"]);
     let params = serde_json::json!({"id": 6, "data": invalid_bytes});
-    let err = db_conn
-        .query_run(&queries, "insert_blob", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert!(expected.contains("byte values (0-255) at index 0"));
@@ -1630,18 +1557,18 @@ fn test_blob_parameter_validation() {
         text_bytes.iter().map(|&b| serde_json::json!(b)).collect();
 
     let params = serde_json::json!({"id": 7, "data": text_bytes_json});
-    let result = db_conn.query_run(&queries, "insert_blob", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "insert_blob", &params);
     assert!(result.is_ok(), "UTF-8 text converted to bytes should work");
 
     // Verify retrieval - should round-trip correctly
     let params = serde_json::json!({"id": 7});
-    let result = db_conn.query_run(&queries, "select_blob", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_blob", &params).unwrap();
     assert_eq!(result.data.len(), 1);
     assert_eq!(result.data[0]["data"], serde_json::json!(text_bytes_json));
 
     // Test that valid blob can be retrieved and is returned as array of bytes
     let params = serde_json::json!({"id": 1});
-    let result = db_conn.query_run(&queries, "select_blob", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_blob", &params).unwrap();
     assert_eq!(result.data.len(), 1);
     // The blob should be returned as an array of numbers representing bytes
     assert_eq!(

@@ -1,4 +1,4 @@
-use jankensqlhub::{DatabaseConnection, JankenError, QueryDefinitions, QueryRunner, parameters};
+use jankensqlhub::{JankenError, QueryDefinitions, parameters, query_run_sqlite};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -14,22 +14,25 @@ fn setup_db() -> Connection {
 #[test]
 fn test_multi_statement_transaction_fixed_transfer() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, balance INTEGER)",
         [],
     )
     .unwrap();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let params = serde_json::json!({});
-    let result = db_conn.query_run(&queries, "multi_statement_transfer", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "multi_statement_transfer", &params);
     assert!(result.is_ok());
     assert!(result.unwrap().data.is_empty());
 
-    let accounts = db_conn
-        .query_run(&queries, "select_accounts", &serde_json::json!({}))
-        .unwrap();
+    let accounts = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "select_accounts",
+        &serde_json::json!({}),
+    )
+    .unwrap();
     assert_eq!(accounts.data.len(), 2);
 
     let alice_balance = accounts
@@ -54,16 +57,20 @@ fn test_multi_statement_transaction_fixed_transfer() {
 #[test]
 fn test_multi_statement_transaction_with_params() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE accounts2 (id INTEGER PRIMARY KEY, name TEXT, balance INTEGER)",
         [],
     )
     .unwrap();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let params = serde_json::json!({"from_name": "Alice", "to_name": "Bob", "initial_balance": 2000, "amount": 300});
-    let result = db_conn.query_run(&queries, "multi_statement_transfer_with_params", &params);
+    let result = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "multi_statement_transfer_with_params",
+        &params,
+    );
     assert!(result.is_ok());
     let result = result.unwrap();
     assert!(result.data.is_empty());
@@ -137,9 +144,13 @@ fn test_multi_statement_transaction_with_params() {
         "Fourth statement still contains @param"
     );
 
-    let accounts = db_conn
-        .query_run(&queries, "select_accounts2", &serde_json::json!({}))
-        .unwrap();
+    let accounts = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "select_accounts2",
+        &serde_json::json!({}),
+    )
+    .unwrap();
     assert_eq!(accounts.data.len(), 2);
 
     let alice_balance = accounts
@@ -164,58 +175,55 @@ fn test_multi_statement_transaction_with_params() {
 #[test]
 fn test_multi_statement_transaction_failure() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute(
         "CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, balance INTEGER)",
         [],
     )
     .unwrap();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
-    let result = db_conn.query_run(
+    let result = query_run_sqlite(
+        &mut conn,
         &queries,
         "multi_statement_failure_transfer",
         &serde_json::json!({}),
     );
     assert!(result.is_err());
 
-    let accounts = db_conn
-        .query_run(&queries, "select_accounts", &serde_json::json!({}))
-        .unwrap();
+    let accounts = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "select_accounts",
+        &serde_json::json!({}),
+    )
+    .unwrap();
     assert_eq!(accounts.data.len(), 0);
 }
 
 #[test]
 fn test_sql_injection_protection_name_parameter() {
     let queries = QueryDefinitions::from_file("test_json/def.json").unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     let sql_injection_attempt = "'; DROP TABLE source; --";
 
     let params = serde_json::json!({"name": "TestUser"});
-    db_conn
-        .query_run(&queries, "insert_single", &params)
-        .unwrap();
+    query_run_sqlite(&mut conn, &queries, "insert_single", &params).unwrap();
 
-    let initial_count = db_conn
-        .query_run(&queries, "select_all", &serde_json::json!({}))
+    let initial_count = query_run_sqlite(&mut conn, &queries, "select_all", &serde_json::json!({}))
         .unwrap()
         .data
         .len();
 
     let params = serde_json::json!({"name": sql_injection_attempt});
-    db_conn
-        .query_run(&queries, "insert_single", &params)
-        .unwrap();
+    query_run_sqlite(&mut conn, &queries, "insert_single", &params).unwrap();
 
     let params = serde_json::json!({"id": 1, "name": "TestUser", "source": "source"});
-    let result = db_conn.query_run(&queries, "my_list", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "my_list", &params).unwrap();
     assert!(!result.data.is_empty());
 
-    let final_result = db_conn
-        .query_run(&queries, "select_all", &serde_json::json!({}))
-        .unwrap();
+    let final_result =
+        query_run_sqlite(&mut conn, &queries, "select_all", &serde_json::json!({})).unwrap();
     assert_eq!(final_result.data.len(), initial_count + 1);
 }
 
@@ -229,12 +237,11 @@ fn test_sql_injection_protection_id_parameter() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     let injection_id = "1 OR 1=1";
     let params = serde_json::json!({"id": injection_id, "name": "injection_test"});
-    let result = db_conn.query_run(&queries, "insert_with_params", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "insert_with_params", &params);
     assert!(result.is_err());
 }
 
@@ -253,21 +260,16 @@ fn test_sql_injection_protection_safe_name_parameter() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     let injection_name = "'; DROP TABLE source; --";
 
     let params = serde_json::json!({"id": 100, "name": injection_name});
-    let result = db_conn
-        .query_run(&queries, "insert_with_params", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "insert_with_params", &params).unwrap();
     assert!(result.data.is_empty());
 
     let params = serde_json::json!({"id": 100});
-    let result = db_conn
-        .query_run(&queries, "select_by_id", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_by_id", &params).unwrap();
     assert_eq!(result.data.len(), 1);
 }
 
@@ -342,24 +344,20 @@ fn test_multi_statement_no_params() {
     });
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
-    let conn = setup_db();
-    let mut db_conn = DatabaseConnection::SQLite(conn);
+    let mut conn = setup_db();
 
     let params = serde_json::json!({});
-    let insert_result = db_conn
-        .query_run(&queries, "insert_multiple_fixed", &params)
-        .unwrap();
+    let insert_result =
+        query_run_sqlite(&mut conn, &queries, "insert_multiple_fixed", &params).unwrap();
     assert!(insert_result.data.is_empty());
 
-    let result = db_conn
-        .query_run(&queries, "select_multiple", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_multiple", &params).unwrap();
     assert_eq!(result.data.len(), 2);
 }
 
 #[test]
 fn test_sqlite_row_error_handling() {
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute(
         "CREATE TABLE test_wide (a INTEGER, b REAL, c TEXT, d BLOB, e INTEGER)",
         [],
@@ -373,8 +371,6 @@ fn test_sqlite_row_error_handling() {
     )
     .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     let json_definitions = serde_json::json!({
         "select_wide_with_types": {
             "query": "SELECT a, b, c, d, e FROM test_wide",
@@ -386,9 +382,7 @@ fn test_sqlite_row_error_handling() {
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
     let params = serde_json::json!({});
-    let result = db_conn
-        .query_run(&queries, "select_wide_with_types", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_wide_with_types", &params).unwrap();
 
     assert_eq!(result.data.len(), 1);
     let obj = &result.data[0];
@@ -404,7 +398,7 @@ fn test_sqlite_row_error_handling() {
 
 #[test]
 fn test_sqlite_real_nan_handling() {
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute("CREATE TABLE test_float (id INTEGER, value REAL)", [])
         .unwrap();
     // Insert Infinity (1.0/0.0) and invalid text that SQLite can't convert to float
@@ -413,8 +407,6 @@ fn test_sqlite_real_nan_handling() {
         [],
     )
     .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     let json_definitions = serde_json::json!({
         "select_float": {
@@ -427,9 +419,7 @@ fn test_sqlite_real_nan_handling() {
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
     let params = serde_json::json!({});
-    let result = db_conn
-        .query_run(&queries, "select_float", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_float", &params).unwrap();
 
     assert_eq!(result.data.len(), 2);
     // Check exact response values
@@ -439,7 +429,7 @@ fn test_sqlite_real_nan_handling() {
 
 #[test]
 fn test_multi_table_name_parameters() {
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
 
     // Create three tables with test data
     conn.execute(
@@ -465,8 +455,6 @@ fn test_multi_table_name_parameters() {
     conn.execute("INSERT INTO table3 VALUES (3, 'Charlie')", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test query with three table name parameters
     let json_definitions = serde_json::json!({
         "multi_table_test": {
@@ -478,9 +466,7 @@ fn test_multi_table_name_parameters() {
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
     let params = serde_json::json!({"table1": "table1", "table2": "table2", "table3": "table3"});
-    let result = db_conn
-        .query_run(&queries, "multi_table_test", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "multi_table_test", &params).unwrap();
 
     assert_eq!(result.data.len(), 1);
     assert_eq!(
@@ -491,7 +477,7 @@ fn test_multi_table_name_parameters() {
 
 #[test]
 fn test_multi_statement_table_name_parameters() {
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
 
     // Create tables for multi-statement test
     conn.execute(
@@ -509,8 +495,6 @@ fn test_multi_statement_table_name_parameters() {
         .unwrap();
     conn.execute("INSERT INTO source_table VALUES (2, 'Bob')", [])
         .unwrap();
-
-    let mut db_conn = DatabaseConnection::SQLite(conn);
 
     // Test multi-statement query with table name parameters
     let json_definitions = serde_json::json!({
@@ -531,16 +515,18 @@ fn test_multi_statement_table_name_parameters() {
     // Run multi-statement transfer
     let params =
         serde_json::json!({"source_table": "source_table", "dest_table": "dest_table", "limit": 2});
-    let transfer_result = db_conn
-        .query_run(&queries, "multi_statement_table_transfer", &params)
-        .unwrap();
+    let transfer_result = query_run_sqlite(
+        &mut conn,
+        &queries,
+        "multi_statement_table_transfer",
+        &params,
+    )
+    .unwrap();
     assert!(transfer_result.data.is_empty());
 
     // Verify the data was transferred and modified
     let params = serde_json::json!({"dest_table": "dest_table"});
-    let result = db_conn
-        .query_run(&queries, "select_dest_table", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "select_dest_table", &params).unwrap();
 
     assert_eq!(result.data.len(), 2);
     assert_eq!(
@@ -573,26 +559,20 @@ fn test_sql_injection_protection_list_parameters() {
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
 
     // Create test table with safe data
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'Alice', 95.0, 1)", [])
         .unwrap();
     conn.execute("INSERT INTO source VALUES (5, 'Bob', 87.5, 0)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
-
     // Test that safe integer list works
     let params = serde_json::json!({"targets": [1, 5]});
-    let result = db_conn
-        .query_run(&queries, "safe_int_list", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "safe_int_list", &params).unwrap();
     assert_eq!(result.data.len(), 2);
 
     // Test SQL injection attempt through integer list - invalid type should fail
     let params = serde_json::json!({"targets": ["1'; DROP TABLE source; --", 5]});
-    let err = db_conn
-        .query_run(&queries, "safe_int_list", &params)
-        .unwrap_err();
+    let err = query_run_sqlite(&mut conn, &queries, "safe_int_list", &params).unwrap_err();
     match err {
         JankenError::ParameterTypeMismatch { expected, got } => {
             assert_eq!(expected, "integer at index 0");
@@ -603,24 +583,18 @@ fn test_sql_injection_protection_list_parameters() {
 
     // Test SQL injection attempt through string list
     let params = serde_json::json!({"names": ["Alice'; DROP TABLE source; --", "Bob"]});
-    let result = db_conn
-        .query_run(&queries, "safe_string_list", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "safe_string_list", &params).unwrap();
     // SQL injection should be blocked by prepared statements - no rows should match the malicious name
     assert_eq!(result.data.len(), 1); // Only "Bob" should match
 
     // Test that safe string values work in list
     let params = serde_json::json!({"names": ["Alice", "Bob"]});
-    let result = db_conn
-        .query_run(&queries, "safe_string_list", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "safe_string_list", &params).unwrap();
     assert_eq!(result.data.len(), 2);
 
     // Verify table still exists and data is safe
     let params = serde_json::json!({"targets": [1, 5]});
-    let result = db_conn
-        .query_run(&queries, "safe_int_list", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "safe_int_list", &params).unwrap();
     assert_eq!(result.data.len(), 2);
 }
 
@@ -669,7 +643,7 @@ fn test_list_parameter_functionality() {
     let queries = QueryDefinitions::from_file("test_json/crud.json").unwrap();
 
     // Create test table with several rows
-    let conn = setup_db();
+    let mut conn = setup_db();
     conn.execute("INSERT INTO source VALUES (1, 'Alice', 95.0, 1)", [])
         .unwrap();
     conn.execute("INSERT INTO source VALUES (5, 'Bob', 87.5, 0)", [])
@@ -681,10 +655,9 @@ fn test_list_parameter_functionality() {
     conn.execute("INSERT INTO source VALUES (20, 'Eve', 91.0, 1)", [])
         .unwrap();
 
-    let mut db_conn = DatabaseConnection::SQLite(conn);
     let params = serde_json::json!({"table": "source", "targets": [1, 5, 10]});
 
-    let result = db_conn.query_run(&queries, "read", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "read", &params).unwrap();
 
     // Should return 3 rows matching the ids [1, 5, 10]
     assert_eq!(result.data.len(), 3);
@@ -700,7 +673,7 @@ fn test_list_parameter_functionality() {
 
     // Test with different array - should only return IDs 5 and 15
     let params = serde_json::json!({"table": "source", "targets": [5, 15]});
-    let result = db_conn.query_run(&queries, "read", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "read", &params).unwrap();
     assert_eq!(result.data.len(), 2);
 
     let names: Vec<String> = result
@@ -713,12 +686,12 @@ fn test_list_parameter_functionality() {
 
     // Test empty list - should fail
     let params = serde_json::json!({"table": "source", "targets": []});
-    let result = db_conn.query_run(&queries, "read", &params);
+    let result = query_run_sqlite(&mut conn, &queries, "read", &params);
     assert!(result.is_err());
 
     // Test multiple list parameters
     let params = serde_json::json!({"table": "source", "ids": [1, 5], "scores": [95.0, 87.5]});
-    let result = db_conn.query_run(&queries, "multi_list", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "multi_list", &params).unwrap();
 
     // Should return records where id IN [1, 5] AND score IN [95.0, 87.5]
     // This matches Alice (id=1, score=95.0) and Bob (id=5, score=87.5)
@@ -734,7 +707,7 @@ fn test_list_parameter_functionality() {
 
     // Test string list parameters
     let params = serde_json::json!({"table": "source", "names": ["Alice", "Charlie", "Eve"]});
-    let result = db_conn.query_run(&queries, "string_list", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "string_list", &params).unwrap();
 
     // Should return 3 rows matching the names ["Alice", "Charlie", "Eve"]
     assert_eq!(result.data.len(), 3);
@@ -750,7 +723,7 @@ fn test_list_parameter_functionality() {
 
     // Test with different string array - should only return Alice and Eve
     let params = serde_json::json!({"table": "source", "names": ["Alice", "Eve"]});
-    let result = db_conn.query_run(&queries, "string_list", &params).unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "string_list", &params).unwrap();
     assert_eq!(result.data.len(), 2);
 
     let returned_names: Vec<String> = result
@@ -763,18 +736,14 @@ fn test_list_parameter_functionality() {
 
     // Test boolean list parameters
     let params = serde_json::json!({"table": "source", "statuses": [true, false]});
-    let result = db_conn
-        .query_run(&queries, "boolean_list", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "boolean_list", &params).unwrap();
 
     // Should return all 5 rows since active contains both true and false values
     assert_eq!(result.data.len(), 5);
 
     // Test with only true values
     let params = serde_json::json!({"table": "source", "statuses": [true]});
-    let result = db_conn
-        .query_run(&queries, "boolean_list", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "boolean_list", &params).unwrap();
 
     // Should return 3 rows with active=true (Alice=1, Charlie=1, Eve=1)
     assert_eq!(result.data.len(), 3);
@@ -790,9 +759,7 @@ fn test_list_parameter_functionality() {
 
     // Test with only false values
     let params = serde_json::json!({"table": "source", "statuses": [false]});
-    let result = db_conn
-        .query_run(&queries, "boolean_list", &params)
-        .unwrap();
+    let result = query_run_sqlite(&mut conn, &queries, "boolean_list", &params).unwrap();
 
     // Should return 2 rows with active=false (Bob=0, David=0)
     assert_eq!(result.data.len(), 2);

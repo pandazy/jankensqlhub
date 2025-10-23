@@ -24,13 +24,12 @@ src/runner_postgres.rs  # Future PostgreSQL implementations
 - **Maintainability**: Database-specific logic isolated per backend
 - **Extensibility**: Easy to add new database backends
 - **Clean APIs**: Each backend has dedicated implementation
-- **Backward Compatibility**: Public API remains unchanged
 
 ### Implementation Details
 - **`src/runner.rs`**: `QueryRunner` trait, common utilities, module coordination
 - **`src/runner_sqlite.rs`**: SQLite type conversions, prepared statements, transaction handling
 - **`src/str_utils.rs`**: Moved `quote_identifier()` utility function
-- **Database dispatching**: Via `DatabaseConnection` enum with matched execution
+- **Direct API**: Simplified to use `query_run_sqlite()` directly
 
 ### Backward Compatibility
 - **Zero Breaking Changes**: All existing code continues to work

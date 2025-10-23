@@ -41,12 +41,11 @@ After running tests to verify functionality, always execute:
 
 ```
 ├── lib.rs              # Entry point, module declarations, API re-exports
-├── connection.rs       # Database connection types, QueryRunner trait implementation
 ├── parameter_constraints.rs # Parameter constraint validation and parsing
 ├── parameters.rs       # Parameter parsing, type validation, prepared statement creation
 ├── query.rs           # Query definition creation and collection management
 ├── result.rs          # Error types and result aliases
-├── runner.rs          # Common query execution interface, DB-independent utilities
+├── runner.rs          # Module coordination and re-exports
 ├── runner_sqlite.rs   # SQLite-specific query execution and type conversions
 └── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
 ```
@@ -55,18 +54,17 @@ After running tests to verify functionality, always execute:
 
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
-| **`connection.rs`** | Database connections & query execution | `DatabaseConnection`, `QueryRunner::query_run()` |
 | **`parameter_constraints.rs`** | Parameter constraint validation and parsing, including enum and enumif constraints | `parse_constraints()`, `ParameterConstraints::validate()` |
 | **`parameters.rs`** | SQL parameter handling including #[table] names and list parameters | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
 | **`query.rs`** | Query definition creation with parameter defaults, #[table] names, and list parameters | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
-| **`runner.rs`** | Common query execution interface, DB-independent utilities | `QueryRunner` trait, `quote_identifier()` |
+| **`runner.rs`** | Module coordination and re-exports | `query_run_sqlite` re-export |
 | **`runner_sqlite.rs`** | SQLite-specific query execution and type conversions | `query_run_sqlite()`, `execute_query_unified()`, `prepare_single_statement()` |
 | **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
 | **`result.rs`** | Query result structures with debug output and error types | `QueryResult`, `JankenError` enum |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
-- Current task name: split_runner
+- Current task name: flatten_structure
 - Progress file name: `_progress_<task_name>.md`
 
 When a new task begins:
