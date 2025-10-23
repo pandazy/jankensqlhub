@@ -70,11 +70,11 @@ pub struct Parameter {
 }
 
 /// Parse parameters from SQL while respecting quote boundaries
-/// Extracts normal parameters (@param), table name parameters (#table), and list parameters (:[list]) from the SQL.
+/// Extracts normal parameters (@param), table name parameters (#\[table\]), and list parameters (:\[list\]) from the SQL.
 /// Returns combined results. If a name is used for multiple parameter types, an error is returned.
 /// For @params: type defaults to String but can be overridden by "args" JSON
-/// For #table names: type is always TableName (auto-detected), only constraints from "args" JSON are applied
-/// For :[list] parameters: type is always List (auto-detected), constraints from "args" JSON are applied
+/// For #\[table\] names: type is always TableName (auto-detected), only constraints from "args" JSON are applied
+/// For :\[list\] parameters: type is always List (auto-detected), constraints from "args" JSON are applied
 pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
     let param_names = extract_parameters_with_regex(sql, &PARAMETER_REGEX);
     let table_names = extract_parameters_with_regex(sql, &TABLE_NAME_REGEX);
@@ -150,11 +150,13 @@ pub fn extract_parameters_with_regex(statement: &str, regex: &Regex) -> Vec<Stri
 }
 
 /// Check if SQL contains transaction control keywords that conflict with rusqlite
+/// Keywords must be whole words (surrounded by whitespace or punctuation) to avoid
+/// false positives from identifiers containing these substrings
 pub fn contains_transaction_keywords(sql: &str) -> bool {
     let upper_sql = sql.to_uppercase();
-    upper_sql.contains("BEGIN")
-        || upper_sql.contains("COMMIT")
-        || upper_sql.contains("ROLLBACK")
-        || upper_sql.contains("START TRANSACTION")
-        || upper_sql.contains("END TRANSACTION")
+
+    // Check for exact keyword matches using word boundaries
+    regex::Regex::new(r"(?i)\b(BEGIN|COMMIT|ROLLBACK|START TRANSACTION|END TRANSACTION)\b")
+        .unwrap()
+        .is_match(&upper_sql)
 }

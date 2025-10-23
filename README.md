@@ -1,6 +1,6 @@
 # Janken SQL Hub - Database Query Management Library
 
-A high-performance, modular Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (currently SQLite, PostgreSQL planned).
+A high-performance, modular Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (SQLite and PostgreSQL).
 
 ## 🎯 Overview
 
@@ -294,15 +294,37 @@ The `enumif` constraint allows parameter validation based on the values of other
 ## 📈 Roadmap
 
 ### Planned Enhancements
-- [ ] PostgreSQL native connection implementation
+- [ ] TBD
 
 ### Database Backend Priorities
 1. ✅ SQLite (complete)
-2.  PostgreSQL (planned implementation)
+2. ✅ PostgreSQL (WIP)
 
-## 🐘 PostgreSQL Testing
+## 🐘 PostgreSQL Support
 
-**JankenSQLHub** supports PostgreSQL testing through experimental modules for future multi-backend support development. See the [operational guide](op.md) for detailed setup instructions for contributors.
+**JankenSQLHub** provides production-ready PostgreSQL support alongside SQLite. Both backends share the same API and parameter syntax, ensuring consistent behavior across database systems.
+
+```rust
+use jankensqlhub::{QueryDefinitions, query_run_postgresql};
+use tokio_postgres::NoTls;
+
+// Setup PostgreSQL connection
+let (client, connection) = tokio_postgres::connect(&connection_string, NoTls).await?;
+tokio::spawn(async move { if let Err(e) = connection.await { eprintln!("connection error: {}", e); } });
+
+// Execute queries with PostgreSQL
+let params = serde_json::json!({"user_id": 42});
+let result = query_run_postgresql(&mut client, &queries, "get_user", &params).await?;
+```
+
+### Key Features
+- **Async Execution**: Leverages tokio-postgres for high-performance async operations
+- **ACID Transactions**: All query execution wrapped in transactions with automatic rollback on failure
+- **Prepared Statements**: Automatic conversion to PostgreSQL `$1, $2, ...` parameter format
+- **Type Safety**: Full type mapping between JSON and PostgreSQL data types
+- **Integration Tests**: Comprehensive test suite covering all features
+
+See the [operational guide](op.md) for testing setup and development instructions.
 
 ## 📦 Installation & Links
 
