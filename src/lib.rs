@@ -4,6 +4,7 @@ pub mod parameters;
 pub mod query;
 pub mod result;
 pub mod runner;
+pub mod runner_sqlite;
 pub mod str_utils;
 
 // Re-export result, parameter, query, connection and runner types for convenience
