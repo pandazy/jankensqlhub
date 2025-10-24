@@ -66,6 +66,7 @@ After running tests to verify functionality, always execute:
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
+- Current task name: decouple_param_analysis_from_db
 - Progress file name: `_progress_<task_name>.md`
 
 When a new task begins:

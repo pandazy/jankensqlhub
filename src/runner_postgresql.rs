@@ -1,69 +1,55 @@
 use crate::{
-    ParameterType, QueryDefinitions, parameters,
+    QueryDefinitions, parameters,
     result::{JankenError, QueryResult, Result},
-    str_utils::{self, quote_identifier},
+    str_utils::split_sql_statements,
 };
+
+// Import generic types for parameter decoupling
+use parameters::ParameterValue;
 use tokio_postgres::Client;
 
-// Type alias for parameter preparation result to reduce type complexity
-// PostgreSQL-specific due to tokio_postgres::types::ToSql trait
-type PreparedParametersResult = (
-    String,
-    Vec<(String, Box<dyn tokio_postgres::types::ToSql + Sync>)>,
-);
-
-// Convert a serde_json Value to a tokio_postgres ToSql type for list items
-// This is PostgreSQL-specific due to tokio_postgres::types::ToSql trait
-fn json_value_to_postgres(
-    value: &serde_json::Value,
-) -> Box<dyn tokio_postgres::types::ToSql + Sync> {
-    match value {
-        serde_json::Value::String(s) => Box::new(s.clone()),
-        serde_json::Value::Number(n) => {
-            if n.is_i64() {
-                Box::new(n.as_i64().unwrap() as i32) // PostgreSQL integers are typically i32
-            } else {
-                Box::new(n.as_f64().unwrap())
-            }
+// Implement trait for converting generic ParameterValue to PostgreSQL-specific ToSql
+impl From<ParameterValue> for Box<dyn tokio_postgres::types::ToSql + Sync> {
+    fn from(param_value: ParameterValue) -> Self {
+        match param_value {
+            ParameterValue::String(s) => Box::new(s),
+            ParameterValue::Integer(i) => Box::new(i as i32), // PostgreSQL typically uses i32 for integers
+            ParameterValue::Float(f) => Box::new(f),
+            ParameterValue::Boolean(b) => Box::new(b),
+            ParameterValue::Blob(bytes) => Box::new(bytes),
+            ParameterValue::Null => Box::new(Option::<String>::None), // Represent null as None
         }
-        serde_json::Value::Bool(b) => Box::new(*b),
-        serde_json::Value::Null => Box::new(Option::<String>::None), // Represent null as None
-        serde_json::Value::Array(a) => {
-            Box::new(serde_json::to_string(&serde_json::Value::Array(a.clone())).unwrap())
-        } // JSON as string
-        serde_json::Value::Object(o) => {
-            Box::new(serde_json::to_string(&serde_json::Value::Object(o.clone())).unwrap())
-        } // JSON as string
     }
 }
 
-// Convert a JSON value to tokio_postgres ToSql based on parameter type definition
-// This is PostgreSQL-specific due to tokio_postgres::types::ToSql trait
-fn parameter_value_to_postgres(
-    param_value: &serde_json::Value,
-    param_type: &ParameterType,
-) -> Box<dyn tokio_postgres::types::ToSql + Sync> {
-    match param_type {
-        ParameterType::String => Box::new(param_value.as_str().unwrap().to_string()),
-        ParameterType::Integer => Box::new(param_value.as_i64().unwrap() as i32),
-        ParameterType::Float => Box::new(param_value.as_f64().unwrap()),
-        ParameterType::Boolean => Box::new(param_value.as_bool().unwrap()),
-        ParameterType::TableName => Box::new(param_value.as_str().unwrap().to_string()),
-        ParameterType::List => {
-            // List parameters are handled separately in list expansion
-            Box::new(String::new()) // Placeholder
-        }
-        ParameterType::Blob => {
-            // Convert array of byte values to Vec<u8>
-            let bytes: Vec<u8> = param_value
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_u64().unwrap() as u8)
-                .collect();
-            Box::new(bytes)
-        }
-    }
+/// Create a prepared statement from SQL using the generic parameter decoupling approach
+/// This separates parameter analysis (generic) from database-specific conversions (PostgreSQL-specific)
+fn prepare_single_statement_postgresql(
+    statement_sql: &str,
+    all_parameters: &[crate::parameters::Parameter],
+    request_params_obj: &serde_json::Map<String, serde_json::Value>,
+) -> Result<PreparedStatement> {
+    // Use the generic parameter preparation (database-agnostic)
+    let generic_statement = parameters::prepare_parameter_statement_generic(
+        statement_sql,
+        all_parameters,
+        request_params_obj,
+    )?;
+
+    // Convert generic parameters to PostgreSQL-specific ToSql types
+    let pgsql_params = generic_statement
+        .parameters
+        .into_iter()
+        .map(|(name, param_value)| {
+            let to_sql: Box<dyn tokio_postgres::types::ToSql + Sync> = param_value.into();
+            (name, to_sql)
+        })
+        .collect();
+
+    Ok(PreparedStatement {
+        sql: generic_statement.sql,
+        named_params: pgsql_params,
+    })
 }
 
 // Map PostgreSQL row data to JSON objects based on column types and field names
@@ -171,122 +157,6 @@ impl PreparedStatement {
     }
 }
 
-// Replace @parameters with @names and collect their values as tokio_postgres types (excluding table names)
-fn prepare_statement_parameters(
-    statement_sql: &str,
-    all_parameters: &[crate::parameters::Parameter],
-    request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<PreparedParametersResult> {
-    let statement_param_names =
-        parameters::extract_parameters_with_regex(statement_sql, &parameters::PARAMETER_REGEX);
-    let prepared_sql = statement_sql.to_string();
-    let mut named_params = Vec::new();
-
-    for param_name in &statement_param_names {
-        // prepared_sql remains unchanged (still has @param)
-        // Get the parameter value from request params
-        let param_value = request_params_obj
-            .get(param_name)
-            .ok_or_else(|| JankenError::ParameterNotProvided(param_name.clone()))?;
-
-        // Find the parameter definition for type validation
-        let param_def = all_parameters
-            .iter()
-            .find(|p| p.name == *param_name)
-            .ok_or_else(|| JankenError::ParameterNotProvided(param_name.clone()))?;
-
-        // Convert JSON value to tokio_postgres::types::ToSql based on parameter type (validation already done upstream)
-        let to_sql: Box<dyn tokio_postgres::types::ToSql + Sync> =
-            parameter_value_to_postgres(param_value, &param_def.param_type);
-        named_params.push((param_name.clone(), to_sql));
-    }
-
-    Ok((prepared_sql, named_params))
-}
-
-// Create a prepared statement from SQL with proper parameter replacement
-fn prepare_single_statement(
-    statement_sql: &str,
-    all_parameters: &[crate::parameters::Parameter],
-    request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<PreparedStatement> {
-    // Validate parameters first to ensure consistency and prevent SQL injection
-    for param_def in all_parameters {
-        let value = request_params_obj
-            .get(&param_def.name)
-            .ok_or_else(|| JankenError::ParameterNotProvided(param_def.name.clone()))?;
-
-        // Validate parameter constraints
-        param_def.constraints.validate(
-            value,
-            &param_def.param_type,
-            &param_def.name,
-            request_params_obj,
-        )?;
-    }
-
-    let (mut prepared_sql, mut named_params) =
-        prepare_statement_parameters(statement_sql, all_parameters, request_params_obj)?;
-
-    // Replace #table_name parameters with direct table name values from request_params_obj
-    for cap in parameters::TABLE_NAME_REGEX.captures_iter(&prepared_sql.clone()) {
-        if let Some(param_name_match) = cap.get(1) {
-            let param_name = param_name_match.as_str();
-
-            // Parameters are already validated at the beginning, so this will always succeed
-            let table_name_value = request_params_obj.get(param_name).unwrap();
-            let table_name_str = table_name_value.as_str().unwrap();
-            // Validate as identifier
-            let valid_ident = quote_identifier(table_name_str);
-            prepared_sql = parameters::TABLE_NAME_REGEX
-                .replace(&prepared_sql, valid_ident)
-                .to_string();
-        }
-    }
-
-    // Replace :[list] parameters with expanded positional parameters ($1, $2, etc.)
-    for cap in parameters::LIST_PARAMETER_REGEX.captures_iter(&prepared_sql.clone()) {
-        if let Some(_param_match) = cap.get(0) {
-            if let Some(param_name_match) = cap.get(1) {
-                let list_param_name = param_name_match.as_str();
-
-                // Get the list parameter value from request params
-                let list_value = request_params_obj.get(list_param_name).unwrap();
-                let list_array = list_value.as_array().unwrap();
-
-                if list_array.is_empty() {
-                    return Err(JankenError::ParameterTypeMismatch {
-                        expected: "non-empty list".to_string(),
-                        got: "empty array".to_string(),
-                    });
-                }
-
-                // Create positional placeholders and values
-                let mut placeholders = Vec::new();
-                for (i, item) in list_array.iter().enumerate() {
-                    let param_key = format!("{list_param_name}_{i}");
-                    placeholders.push(format!("@{param_key}")); // Keep @ for consistency
-
-                    let to_sql: Box<dyn tokio_postgres::types::ToSql + Sync> =
-                        json_value_to_postgres(item);
-                    named_params.push((param_key, to_sql));
-                }
-
-                // Replace the :[param] with (positional placeholders joined by comma)
-                let placeholder_str = placeholders.join(", ");
-                prepared_sql = parameters::LIST_PARAMETER_REGEX
-                    .replace(&prepared_sql, format!("({placeholder_str})"))
-                    .to_string();
-            }
-        }
-    }
-
-    Ok(PreparedStatement {
-        sql: prepared_sql,
-        named_params,
-    })
-}
-
 // Execute a single SQL statement with its appropriate parameters
 async fn execute_single_statement(
     transaction: &mut tokio_postgres::Transaction<'_>,
@@ -294,7 +164,8 @@ async fn execute_single_statement(
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<String> {
-    let prepared = prepare_single_statement(statement_sql, all_parameters, request_params_obj)?;
+    let prepared =
+        prepare_single_statement_postgresql(statement_sql, all_parameters, request_params_obj)?;
 
     // Convert to positional parameters for PostgreSQL
     let (positional_sql, positional_params) = prepared.as_positional_params();
@@ -317,7 +188,7 @@ async fn execute_mutation_query(
     let mut sql_statements = Vec::new();
     if query.sql.contains(';') {
         // Has parameters - split into individual statements and execute each one
-        let individual_statements = str_utils::split_sql_statements(&query.sql);
+        let individual_statements = split_sql_statements(&query.sql);
 
         for statement_sql in individual_statements {
             // Execute each statement with the appropriate parameters
@@ -332,7 +203,8 @@ async fn execute_mutation_query(
         }
     } else {
         // Single-statement mutation - prepare and execute normally with all parameters
-        let prepared = prepare_single_statement(&query.sql, &query.parameters, request_params_obj)?;
+        let prepared =
+            prepare_single_statement_postgresql(&query.sql, &query.parameters, request_params_obj)?;
 
         let (positional_sql, positional_params) = prepared.as_positional_params();
         transaction
@@ -353,7 +225,8 @@ pub async fn execute_query_unified(
 ) -> Result<QueryResult> {
     if !query.returns.is_empty() {
         // Query with returns specified - return structured data
-        let prepared = prepare_single_statement(&query.sql, &query.parameters, request_params_obj)?;
+        let prepared =
+            prepare_single_statement_postgresql(&query.sql, &query.parameters, request_params_obj)?;
 
         let (positional_sql, positional_params) = prepared.as_positional_params();
 
