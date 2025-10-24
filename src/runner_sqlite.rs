@@ -228,3 +228,19 @@ pub fn query_run_sqlite(
     tx.commit().map_err(JankenError::Sqlite)?;
     Ok(query_result)
 }
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::types::ValueRef;
+
+    #[test]
+    fn test_parameter_value_null_to_sqlite_conversion() {
+        // Test the null edge case from line 20
+        let null_param = crate::parameters::ParameterValue::Null;
+        let sql_null: Box<dyn rusqlite::ToSql> = null_param.into();
+        match sql_null.to_sql().unwrap() {
+            rusqlite::types::ToSqlOutput::Borrowed(ValueRef::Null) => {} // Null conversion works correctly
+            _ => panic!("Expected Null value for ParameterValue::Null"),
+        }
+    }
+}

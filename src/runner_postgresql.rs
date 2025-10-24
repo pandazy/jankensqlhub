@@ -8,17 +8,32 @@ use crate::{
 use parameters::ParameterValue;
 use tokio_postgres::Client;
 
-// Implement trait for converting generic ParameterValue to PostgreSQL-specific ToSql
-impl From<ParameterValue> for Box<dyn tokio_postgres::types::ToSql + Sync> {
-    fn from(param_value: ParameterValue) -> Self {
-        match param_value {
-            ParameterValue::String(s) => Box::new(s),
-            ParameterValue::Integer(i) => Box::new(i as i32), // PostgreSQL typically uses i32 for integers
-            ParameterValue::Float(f) => Box::new(f),
-            ParameterValue::Boolean(b) => Box::new(b),
-            ParameterValue::Blob(bytes) => Box::new(bytes),
-            ParameterValue::Null => Box::new(Option::<String>::None), // Represent null as None
-        }
+// PostgreSQL type OIDs for all column types
+const POSTGRES_TYPE_OID_BOOL: u32 = 16;
+const POSTGRES_TYPE_OID_BYTEA: u32 = 17;
+const POSTGRES_TYPE_OID_INT2: u32 = 21;
+const POSTGRES_TYPE_OID_INT4: u32 = 23;
+const POSTGRES_TYPE_OID_INT8: u32 = 20;
+const POSTGRES_TYPE_OID_FLOAT4: u32 = 700;
+const POSTGRES_TYPE_OID_FLOAT8: u32 = 701;
+const POSTGRES_TYPE_OID_TEXT: u32 = 25;
+const POSTGRES_TYPE_OID_VARCHAR: u32 = 1043;
+const POSTGRES_TYPE_OID_BPCHAR: u32 = 1042;
+const POSTGRES_TYPE_OID_JSON: u32 = 114;
+const POSTGRES_TYPE_OID_JSONB: u32 = 3802;
+
+/// Convert a generic ParameterValue directly to PostgreSQL ToSql trait object
+/// This provides easier testability by being a direct function call instead of a trait implementation
+pub fn parameter_value_to_postgresql_tosql(
+    param_value: ParameterValue,
+) -> Box<dyn tokio_postgres::types::ToSql + Sync> {
+    match param_value {
+        ParameterValue::String(s) => Box::new(s),
+        ParameterValue::Integer(i) => Box::new(i as i32), // PostgreSQL typically uses i32 for integers
+        ParameterValue::Float(f) => Box::new(f),
+        ParameterValue::Boolean(b) => Box::new(b),
+        ParameterValue::Blob(bytes) => Box::new(bytes),
+        ParameterValue::Null => Box::new(Option::<String>::None), // Represent null as None
     }
 }
 
@@ -36,12 +51,12 @@ fn prepare_single_statement_postgresql(
         request_params_obj,
     )?;
 
-    // Convert generic parameters to PostgreSQL-specific ToSql types
+    // Convert generic parameters to PostgreSQL-specific ToSql types using direct function call
     let pgsql_params = generic_statement
         .parameters
         .into_iter()
         .map(|(name, param_value)| {
-            let to_sql: Box<dyn tokio_postgres::types::ToSql + Sync> = param_value.into();
+            let to_sql = parameter_value_to_postgresql_tosql(param_value);
             (name, to_sql)
         })
         .collect();
@@ -52,75 +67,101 @@ fn prepare_single_statement_postgresql(
     })
 }
 
+fn to_json_value<T: serde::Serialize>(value: T) -> Result<serde_json::Value> {
+    serde_json::to_value(value).map_err(JankenError::Json)
+}
+
+/// Convert a PostgreSQL column value based on the given type
+/// This function handles the type-specific conversion to JSON using OID-based detection for stability
+pub fn postgres_type_to_json_conversion(
+    column_type: &tokio_postgres::types::Type,
+    row: &tokio_postgres::Row,
+    idx: usize,
+) -> Result<serde_json::Value> {
+    let oid = column_type.oid();
+    match oid {
+        POSTGRES_TYPE_OID_BOOL => {
+            let val: bool = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_INT2 => {
+            let val: i16 = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_INT4 => {
+            let val: i32 = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_INT8 => {
+            let val: i64 = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_FLOAT4 => {
+            let val: f32 = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_FLOAT8 => {
+            let val: f64 = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_TEXT | POSTGRES_TYPE_OID_VARCHAR | POSTGRES_TYPE_OID_BPCHAR => {
+            let val: String = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_BYTEA => {
+            let val: Vec<u8> = row.try_get(idx)?;
+            to_json_value(val)
+        }
+        POSTGRES_TYPE_OID_JSON | POSTGRES_TYPE_OID_JSONB => {
+            let json_val: serde_json::Value = row.try_get(idx)?;
+            to_json_value(json_val)
+        }
+        _ => {
+            // Fall back to string representation for unsupported types
+            // Since tokio_postgres may not support all PostgreSQL types for String conversion,
+            // we return a marker string to indicate the fallback was executed
+            let val = format!("Unsupported PostgreSQL type OID: {oid}");
+            to_json_value(val)
+        }
+    }
+}
+
+// Convert a single PostgreSQL row to a JSON object based on column types and field names
+fn row_to_json_object(
+    row: &tokio_postgres::Row,
+    returns: &[String],
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let mut obj = serde_json::Map::new();
+    for (idx, field_name) in returns.iter().enumerate() {
+        // PostgreSQL row indexing starts at 0
+        let value = match row.columns().get(idx) {
+            Some(col) => postgres_type_to_json_conversion(col.type_(), row, idx),
+            None => Ok(serde_json::Value::Null),
+        };
+
+        match value {
+            Ok(val) => {
+                obj.insert(field_name.clone(), val);
+            }
+            Err(_) => {
+                obj.insert(field_name.clone(), serde_json::Value::Null);
+            }
+        }
+    }
+
+    Ok(obj)
+}
+
 // Map PostgreSQL row data to JSON objects based on column types and field names
 // This function converts database rows to structured JSON data for easier unit testing
-fn map_rows_to_json_data(
+pub fn map_rows_to_json_data(
     rows: Vec<tokio_postgres::Row>,
     returns: &[String],
 ) -> Result<Vec<serde_json::Value>> {
     let mut result_data = Vec::new();
 
     for row in rows {
-        let mut obj = serde_json::Map::new();
-        for (idx, field_name) in returns.iter().enumerate() {
-            // PostgreSQL row indexing starts at 0
-            let value: Result<serde_json::Value> = match row.columns().get(idx) {
-                Some(col) => match col.type_() {
-                    &tokio_postgres::types::Type::BOOL => {
-                        let val: bool = row.try_get(idx)?;
-                        Ok(serde_json::Value::Bool(val))
-                    }
-                    &tokio_postgres::types::Type::INT2 | &tokio_postgres::types::Type::INT4 => {
-                        let val: i32 = row.try_get(idx)?;
-                        Ok(serde_json::Value::Number(val.into()))
-                    }
-                    &tokio_postgres::types::Type::INT8 => {
-                        let val: i64 = row.try_get(idx)?;
-                        Ok(serde_json::Value::Number(val.into()))
-                    }
-                    &tokio_postgres::types::Type::FLOAT4 | &tokio_postgres::types::Type::FLOAT8 => {
-                        let val: f64 = row.try_get(idx)?;
-                        Ok(serde_json::Value::Number(
-                            serde_json::Number::from_f64(val).unwrap(),
-                        ))
-                    }
-                    &tokio_postgres::types::Type::TEXT | &tokio_postgres::types::Type::VARCHAR => {
-                        let val: String = row.try_get(idx)?;
-                        Ok(serde_json::Value::String(val))
-                    }
-                    &tokio_postgres::types::Type::BYTEA => {
-                        let val: Vec<u8> = row.try_get(idx)?;
-                        Ok(serde_json::Value::Array(
-                            val.iter()
-                                .map(|&b| serde_json::Value::Number(b.into()))
-                                .collect(),
-                        ))
-                    }
-                    &tokio_postgres::types::Type::JSON | &tokio_postgres::types::Type::JSONB => {
-                        let json_str: String = row.try_get(idx)?;
-                        match serde_json::from_str(&json_str) {
-                            Ok(val) => Ok(val),
-                            Err(_) => Ok(serde_json::Value::Null),
-                        }
-                    }
-                    _ => {
-                        // Fall back to string representation for unsupported types
-                        let val: String = row.try_get(idx)?;
-                        Ok(serde_json::Value::String(val))
-                    }
-                },
-                None => Ok(serde_json::Value::Null),
-            };
-
-            match value {
-                Ok(val) => {
-                    obj.insert(field_name.clone(), val);
-                }
-                Err(_) => {
-                    obj.insert(field_name.clone(), serde_json::Value::Null);
-                }
-            }
-        }
+        let obj = row_to_json_object(&row, returns)?;
         result_data.push(serde_json::Value::Object(obj));
     }
 

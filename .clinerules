@@ -24,6 +24,7 @@ After running tests to verify functionality, always execute:
 - Try not to use loops in tests, except looping through an array that obviously has elements
 - Do not over-engineer tests
 - We should always assert exact value, avoid using vague assertion such as 'option.is_some' or 'result.is_ok', for success cases we always expect deterministic results
+- Do not use special numbers like PI or E, they will trigger unnecessary linting errors
 
 ## Code Quality Standards
 - Apply Occam's Razor, trying to be minimalist
