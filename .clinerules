@@ -83,6 +83,15 @@ When being asked to update documents, check the codebase and see if any of the f
 - .clinerules
 
 
+## Integration Test Splitting
+When splitting large integration test files into topic-specific files:
+
+- Target file: `<file_name>.rs`
+- Output pattern: `<file_name>_***.rs` (append topic identifier after underscore)
+
+Important: Always create a backup of the original `<file_name>.rs` as `<file_name>.rs.bak` before splitting. If the splitting process breaks the files, refer back to this backup to restore the original state. Note: Do not modify `error_handling_parameter_validation.rs.bak` again.
+
+
 ## TODO LIST USAGE
 When starting a new task, it is recommended to create a todo list:
 1. Include the task_progress parameter in your next tool call
