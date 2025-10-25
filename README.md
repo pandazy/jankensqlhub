@@ -294,7 +294,7 @@ The `enumif` constraint allows parameter validation based on the values of other
 ## 📈 Roadmap
 
 ### Planned Enhancements
-- [ ] TBD
+- [ ] More robust error handling
 
 ### Database Backend Priorities
 1. ✅ SQLite (complete)
