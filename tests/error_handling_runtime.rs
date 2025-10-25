@@ -41,10 +41,20 @@ fn test_sqlite_sql_syntax_error() {
     let result = query_run_sqlite(&mut conn, &queries, "bad_query", &params);
     assert!(result.is_err());
 
+    // SQLite errors are now returned as native rusqlite::Error wrapped in anyhow
+    // We just verify that an error occurred, not the specific variant
     let err = result.unwrap_err();
-    match err {
-        JankenError::Sqlite { .. } => {} // SQLite error as expected
-        _ => panic!("Expected Sqlite error, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    // The error should be downcastable and contain SQLite-related error info
+    if let Ok(rusqlite_err) = err.downcast::<rusqlite::Error>() {
+        // Should be a SQLite error
+        assert!(
+            format!("{rusqlite_err}").contains("syntax")
+                || format!("{rusqlite_err}").contains("SQLITE")
+                || format!("{rusqlite_err}").contains("error")
+        );
+    } else {
+        panic!("Expected SQLite error, got: {err_str}");
     }
 }
 
@@ -82,13 +92,13 @@ fn test_regex_error() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            // Should fail with regex validation error
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            assert!(expected.contains("regex"));
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid regex, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        // Should fail with regex validation error
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert!(expected.contains("regex"));
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid regex, got: {err_str}");
     }
 }
 
@@ -147,17 +157,17 @@ fn test_table_name_parameter_security_and_validation() {
     for (params, expected_type, expected_got) in type_mismatch_cases {
         let err =
             query_run_sqlite(&mut conn, &queries, "table_injection_test", &params).unwrap_err();
-        match err {
-            JankenError::ParameterTypeMismatch { data } => {
-                let expected = error_meta(&data, M_EXPECTED).unwrap();
-                let got = error_meta(&data, M_GOT).unwrap();
-                assert_eq!(
-                    expected, expected_type,
-                    "Expected type mismatch for {expected_got}"
-                );
-                assert_eq!(got, expected_got);
-            }
-            _ => panic!("Expected ParameterTypeMismatch for {expected_got}, got: {err:?}"),
+        let err_str = format!("{err:?}");
+        if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
+            assert_eq!(
+                expected, expected_type,
+                "Expected type mismatch for {expected_got}"
+            );
+            assert_eq!(got, expected_got);
+        } else {
+            panic!("Expected ParameterTypeMismatch for {expected_got}, got: {err_str}");
         }
     }
 
@@ -235,19 +245,19 @@ fn test_table_name_validation_error() {
 
         let params = serde_json::json!({"table_name": table_name});
         let err = query_run_sqlite(&mut conn, &queries, "table_query", &params).unwrap_err();
-        match err {
-            JankenError::ParameterTypeMismatch { data } => {
-                let expected = error_meta(&data, M_EXPECTED).unwrap();
-                let got = error_meta(&data, M_GOT).unwrap();
-                assert_eq!(
-                    expected,
-                    "valid table name (alphanumeric and underscores only)"
-                );
-                assert_eq!(got, table_name);
-            }
-            _ => panic!(
-                "Expected ParameterTypeMismatch for invalid table name '{table_name}', got: {err:?}"
-            ),
+        let err_str = format!("{err:?}");
+        if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
+            assert_eq!(
+                expected,
+                "valid table name (alphanumeric and underscores only)"
+            );
+            assert_eq!(got, table_name);
+        } else {
+            panic!(
+                "Expected ParameterTypeMismatch for invalid table name '{table_name}', got: {err_str}"
+            );
         }
     }
 

@@ -123,14 +123,14 @@ fn test_sql_injection_protection_list_parameters() {
     // Test SQL injection attempt through integer list - invalid type should fail
     let params = serde_json::json!({"targets": ["1'; DROP TABLE source; --", 5]});
     let err = query_run_sqlite(&mut conn, &queries, "safe_int_list", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "integer at index 0");
-            assert_eq!(got, "\"1'; DROP TABLE source; --\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "integer at index 0");
+        assert_eq!(got, "\"1'; DROP TABLE source; --\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
     }
 
     // Test SQL injection attempt through string list

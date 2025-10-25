@@ -1,7 +1,7 @@
 use jankensqlhub::{
     ERR_CODE_IO, ERR_CODE_JSON, ERR_CODE_PARAMETER_NAME_CONFLICT, ERR_CODE_PARAMETER_NOT_PROVIDED,
-    ERR_CODE_PARAMETER_TYPE_MISMATCH, ERR_CODE_POSTGRES, ERR_CODE_QUERY_NOT_FOUND, ERR_CODE_REGEX,
-    ERR_CODE_SQLITE, JankenError, get_error_data, get_error_info,
+    ERR_CODE_PARAMETER_TYPE_MISMATCH, ERR_CODE_QUERY_NOT_FOUND, ERR_CODE_REGEX, JankenError,
+    get_error_data, get_error_info,
 };
 
 #[test]
@@ -32,11 +32,10 @@ fn test_parameter_parsing_with_valid_parameters() {
 #[test]
 fn test_all_error_codes_are_present() {
     // Additional verification that all expected error codes have mappings
+    // Note: ERR_CODE_SQLITE and ERR_CODE_POSTGRES removed as native DB errors are no longer wrapped
     let expected_codes = [
         ERR_CODE_IO,
         ERR_CODE_JSON,
-        ERR_CODE_SQLITE,
-        ERR_CODE_POSTGRES,
         ERR_CODE_QUERY_NOT_FOUND,
         ERR_CODE_PARAMETER_NOT_PROVIDED,
         ERR_CODE_PARAMETER_TYPE_MISMATCH,
@@ -116,15 +115,6 @@ fn test_get_error_data() {
     assert_eq!(data.code, 1010); // ERR_CODE_JSON
     assert!(data.metadata.is_some());
 
-    // Test Sqlite variant
-    let sqlite_err = rusqlite::Error::QueryReturnedNoRows;
-    let err = JankenError::from(sqlite_err);
-    let data = get_error_data(&err);
-    assert_eq!(data.code, 1020); // ERR_CODE_SQLITE
-    assert!(data.metadata.is_some());
-
-    // Test Postgres variant (postgres errors are tested in integration tests due to complexity of error creation)
-
     // Test Regex variant using From<regex::Error>
     let regex_pattern = "[invalid";
     let regex_err = regex::Regex::new(regex_pattern).unwrap_err();
@@ -161,25 +151,6 @@ fn test_get_error_info() {
     assert_eq!(
         json_info.description,
         "JSON parsing or serialization failed"
-    );
-
-    // Sqlite error (using a mock error)
-    let sqlite_err = JankenError::new_sqlite(rusqlite::Error::QueryReturnedNoRows);
-    let sqlite_code = get_error_data(&sqlite_err).code;
-    let sqlite_info = get_error_info(sqlite_code).unwrap();
-    assert_eq!(sqlite_info.code, ERR_CODE_SQLITE);
-    assert_eq!(sqlite_info.name, "SQLITE_ERROR");
-    assert_eq!(sqlite_info.category, "Database");
-    assert_eq!(sqlite_info.description, "SQLite database operation failed");
-
-    // Postgres error (test constant directly since tokio_postgres::Error is hard to construct for testing)
-    let postgres_info = get_error_info(ERR_CODE_POSTGRES).unwrap();
-    assert_eq!(postgres_info.code, ERR_CODE_POSTGRES);
-    assert_eq!(postgres_info.name, "POSTGRES_ERROR");
-    assert_eq!(postgres_info.category, "Database");
-    assert_eq!(
-        postgres_info.description,
-        "PostgreSQL database operation failed"
     );
 
     // QueryNotFound error
@@ -255,10 +226,9 @@ fn test_get_error_info() {
     let invalid_info = get_error_info(9999);
     assert!(invalid_info.is_none());
 
-    // Verify all error constants match their mappings (postgres already verified above)
+    // Verify all error constants match their mappings
     assert_eq!(io_info.code, ERR_CODE_IO);
     assert_eq!(json_info.code, ERR_CODE_JSON);
-    assert_eq!(sqlite_info.code, ERR_CODE_SQLITE);
     assert_eq!(query_not_found_info.code, ERR_CODE_QUERY_NOT_FOUND);
     assert_eq!(
         param_not_provided_info.code,
@@ -301,12 +271,6 @@ fn test_from_trait_implementations() {
     let data = get_error_data(&janken_err);
     assert_eq!(data.code, ERR_CODE_IO);
 
-    let sqlite_err =
-        rusqlite::Error::InvalidColumnType(0, "test".to_string(), rusqlite::types::Type::Text);
-    let janken_err: JankenError = sqlite_err.into();
-    assert!(matches!(janken_err, JankenError::Sqlite { .. }));
-    let data = get_error_data(&janken_err);
-    assert_eq!(data.code, ERR_CODE_SQLITE);
-
+    // Database error wrappers removed in favor of native errors
     // Postgres From implementation is tested in integration tests due to complexity of creating tokio_postgres::Error
 }

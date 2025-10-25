@@ -1,6 +1,6 @@
 use crate::{
     QueryDefinitions, parameters,
-    result::{JankenError, QueryResult, Result},
+    result::{JankenError, QueryResult},
     str_utils::split_sql_statements,
 };
 
@@ -42,7 +42,7 @@ fn prepare_single_statement_postgresql(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<PreparedStatement> {
+) -> anyhow::Result<PreparedStatement> {
     // Use the generic parameter preparation (database-agnostic)
     let generic_statement = parameters::prepare_parameter_statement_generic(
         statement_sql,
@@ -66,8 +66,10 @@ fn prepare_single_statement_postgresql(
     })
 }
 
-fn to_json_value<T: serde::Serialize>(value: T) -> Result<serde_json::Value> {
-    serde_json::to_value(value).map_err(JankenError::new_json)
+fn to_json_value<T: serde::Serialize>(value: T) -> anyhow::Result<serde_json::Value> {
+    serde_json::to_value(value)
+        .map_err(JankenError::new_json)
+        .map_err(Into::into)
 }
 
 /// Convert a PostgreSQL column value based on the given type
@@ -76,7 +78,7 @@ pub fn postgres_type_to_json_conversion(
     column_type: &tokio_postgres::types::Type,
     row: &tokio_postgres::Row,
     idx: usize,
-) -> Result<serde_json::Value> {
+) -> anyhow::Result<serde_json::Value> {
     let oid = column_type.oid();
     match oid {
         POSTGRES_TYPE_OID_BOOL => {
@@ -129,7 +131,7 @@ pub fn postgres_type_to_json_conversion(
 fn row_to_json_object(
     row: &tokio_postgres::Row,
     returns: &[String],
-) -> Result<serde_json::Map<String, serde_json::Value>> {
+) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
     let mut obj = serde_json::Map::new();
     for (idx, field_name) in returns.iter().enumerate() {
         // PostgreSQL row indexing starts at 0
@@ -156,7 +158,7 @@ fn row_to_json_object(
 pub fn map_rows_to_json_data(
     rows: Vec<tokio_postgres::Row>,
     returns: &[String],
-) -> Result<Vec<serde_json::Value>> {
+) -> anyhow::Result<Vec<serde_json::Value>> {
     let mut result_data = Vec::new();
 
     for row in rows {
@@ -203,7 +205,7 @@ async fn execute_single_statement(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<String> {
+) -> anyhow::Result<String> {
     let prepared =
         prepare_single_statement_postgresql(statement_sql, all_parameters, request_params_obj)?;
 
@@ -214,7 +216,7 @@ async fn execute_single_statement(
     transaction
         .execute(&positional_sql, &positional_params)
         .await
-        .map_err(JankenError::new_postgres)?;
+        .map_err(anyhow::Error::from)?;
 
     Ok(positional_sql)
 }
@@ -224,7 +226,7 @@ async fn execute_mutation_query(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     transaction: &mut tokio_postgres::Transaction<'_>,
-) -> Result<Vec<String>> {
+) -> anyhow::Result<Vec<String>> {
     let mut sql_statements = Vec::new();
     if query.sql.contains(';') {
         // Has parameters - split into individual statements and execute each one
@@ -250,7 +252,7 @@ async fn execute_mutation_query(
         transaction
             .execute(&pos_sql, &pos_params)
             .await
-            .map_err(JankenError::new_postgres)?;
+            .map_err(anyhow::Error::from)?;
         sql_statements.push(pos_sql);
     }
 
@@ -262,7 +264,7 @@ pub async fn execute_query_unified(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     transaction: &mut tokio_postgres::Transaction<'_>,
-) -> Result<QueryResult> {
+) -> anyhow::Result<QueryResult> {
     if !query.returns.is_empty() {
         // Query with returns specified - return structured data
         let prepared =
@@ -273,7 +275,7 @@ pub async fn execute_query_unified(
         let rows = transaction
             .query(&positional_sql, &positional_params)
             .await
-            .map_err(JankenError::new_postgres)?;
+            .map_err(anyhow::Error::from)?;
 
         let result_data = map_rows_to_json_data(rows, &query.returns)?;
 
@@ -297,7 +299,7 @@ pub async fn query_run_postgresql(
     queries: &QueryDefinitions,
     query_name: &str,
     request_params: &serde_json::Value,
-) -> Result<QueryResult> {
+) -> anyhow::Result<QueryResult> {
     let query = queries
         .definitions
         .get(query_name)
@@ -308,19 +310,13 @@ pub async fn query_run_postgresql(
         .ok_or_else(|| JankenError::new_parameter_type_mismatch("object", "not object"))?;
 
     // Start transaction - always use transactions for consistency and ACID properties
-    let mut transaction = client
-        .transaction()
-        .await
-        .map_err(JankenError::new_postgres)?;
+    let mut transaction = client.transaction().await.map_err(anyhow::Error::from)?;
 
     // Handle all queries uniformly within transactions
     let query_result = execute_query_unified(query, request_params_obj, &mut transaction).await?;
 
     // Always commit the transaction (for both single and multi-statement queries)
-    transaction
-        .commit()
-        .await
-        .map_err(JankenError::new_postgres)?;
+    transaction.commit().await.map_err(anyhow::Error::from)?;
     Ok(query_result)
 }
 

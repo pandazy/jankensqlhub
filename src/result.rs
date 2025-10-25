@@ -22,18 +22,6 @@ pub enum JankenError {
         source: serde_json::Error,
         data: ErrorData,
     },
-    #[error("SQLite error")]
-    Sqlite {
-        #[source]
-        source: rusqlite::Error,
-        data: ErrorData,
-    },
-    #[error("PostgreSQL error")]
-    Postgres {
-        #[source]
-        source: tokio_postgres::Error,
-        data: ErrorData,
-    },
     #[error("Query not found")]
     QueryNotFound { data: ErrorData },
     #[error("Parameter not provided")]
@@ -74,8 +62,6 @@ pub const M_ERROR: &str = "error";
 /// Error codes for JankenError variants
 pub const ERR_CODE_IO: u16 = 1000;
 pub const ERR_CODE_JSON: u16 = 1010;
-pub const ERR_CODE_SQLITE: u16 = 1020;
-pub const ERR_CODE_POSTGRES: u16 = 1030;
 pub const ERR_CODE_QUERY_NOT_FOUND: u16 = 2000;
 pub const ERR_CODE_PARAMETER_NOT_PROVIDED: u16 = 2010;
 pub const ERR_CODE_PARAMETER_TYPE_MISMATCH: u16 = 2020;
@@ -114,32 +100,6 @@ impl JankenError {
                     })
                     .to_string(),
                 ),
-            },
-        }
-    }
-
-    pub fn new_sqlite(error: rusqlite::Error) -> Self {
-        JankenError::Sqlite {
-            source: error,
-            data: ErrorData {
-                code: ERR_CODE_SQLITE,
-                metadata: Some(
-                    serde_json::json!({
-                        M_ERROR: "sqlite_error"
-                    })
-                    .to_string(),
-                ),
-            },
-        }
-    }
-
-    pub fn new_postgres(error: tokio_postgres::Error) -> Self {
-        let code_str = error.code().map(|c| c.code().to_string());
-        JankenError::Postgres {
-            source: error,
-            data: ErrorData {
-                code: ERR_CODE_POSTGRES,
-                metadata: code_str.map(|c| serde_json::json!(c).to_string()),
             },
         }
     }
@@ -233,18 +193,6 @@ impl From<serde_json::Error> for JankenError {
     }
 }
 
-impl From<rusqlite::Error> for JankenError {
-    fn from(error: rusqlite::Error) -> Self {
-        JankenError::new_sqlite(error)
-    }
-}
-
-impl From<tokio_postgres::Error> for JankenError {
-    fn from(error: tokio_postgres::Error) -> Self {
-        JankenError::new_postgres(error)
-    }
-}
-
 impl From<regex::Error> for JankenError {
     fn from(error: regex::Error) -> Self {
         JankenError::new_regex(error)
@@ -272,18 +220,6 @@ pub const ERROR_MAPPINGS: &[ErrorInfo] = &[
         name: "JSON_ERROR",
         category: "Serialization",
         description: "JSON parsing or serialization failed",
-    },
-    ErrorInfo {
-        code: ERR_CODE_SQLITE,
-        name: "SQLITE_ERROR",
-        category: "Database",
-        description: "SQLite database operation failed",
-    },
-    ErrorInfo {
-        code: ERR_CODE_POSTGRES,
-        name: "POSTGRES_ERROR",
-        category: "Database",
-        description: "PostgreSQL database operation failed",
     },
     ErrorInfo {
         code: ERR_CODE_QUERY_NOT_FOUND,
@@ -322,8 +258,6 @@ pub fn get_error_data(err: &JankenError) -> &ErrorData {
     match err {
         JankenError::Io { data, .. } => data,
         JankenError::Json { data, .. } => data,
-        JankenError::Sqlite { data, .. } => data,
-        JankenError::Postgres { data, .. } => data,
         JankenError::QueryNotFound { data } => data,
         JankenError::ParameterNotProvided { data } => data,
         JankenError::ParameterTypeMismatch { data } => data,

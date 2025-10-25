@@ -22,10 +22,8 @@ pub use result::{
     ERR_CODE_PARAMETER_NAME_CONFLICT,
     ERR_CODE_PARAMETER_NOT_PROVIDED,
     ERR_CODE_PARAMETER_TYPE_MISMATCH,
-    ERR_CODE_POSTGRES,
     ERR_CODE_QUERY_NOT_FOUND,
     ERR_CODE_REGEX,
-    ERR_CODE_SQLITE,
     JankenError,
     M_COLUMN,
     M_CONFLICT_NAME,
@@ -44,10 +42,12 @@ pub use result::{
     get_error_data,
     get_error_info,
 };
-pub use runner::query_run_sqlite;
+pub use runner_sqlite::query_run_sqlite;
 
 // Re-export third-party types used in the public API to provide fallback for dependency conflicts
 pub use serde_json::Value as JsonValue;
 
 // Re-export third-party types used in the public API to provide fallback for dependency conflicts
 pub use rusqlite::Connection as SqliteConnection;
+
+pub use anyhow;

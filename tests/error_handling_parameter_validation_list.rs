@@ -51,80 +51,80 @@ fn test_list_parameter_constraint_validation_errors() {
     // Test list with mixed item types - should fail at first invalid item (index 1)
     let params = serde_json::json!({"ints": [1, "invalid_string", 3.0, true]});
     let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "integer at index 1");
-            assert_eq!(got, "\"invalid_string\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid list item type, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "integer at index 1");
+        assert_eq!(got, "\"invalid_string\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid list item type, got: {err_str}");
     }
 
     // Test list with string pattern - invalid names should fail
     let params = serde_json::json!({"names": ["Alice", "lowercase_name", "123invalid"]});
     let err = query_run_sqlite(&mut conn, &queries, "list_string_pattern", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("string matching pattern"));
-            assert_eq!(got, "lowercase_name");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for pattern validation, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("string matching pattern"));
+        assert_eq!(got, "lowercase_name");
+    } else {
+        panic!("Expected ParameterTypeMismatch for pattern validation, got: {err_str}");
     }
 
     // Test list with float range - out of range values should fail
     let params = serde_json::json!({"scores": [85.5, -5.0, 150.5, 92.0]});
     let err = query_run_sqlite(&mut conn, &queries, "list_float_range", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("value between 0 and 100"));
-            assert_eq!(got, "-5");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for range validation, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("value between 0 and 100"));
+        assert_eq!(got, "-5");
+    } else {
+        panic!("Expected ParameterTypeMismatch for range validation, got: {err_str}");
     }
 
     // Test list with enum - invalid enum values should fail
     let params = serde_json::json!({"statuses": ["active", "unknown_status", "pending"]});
     let err = query_run_sqlite(&mut conn, &queries, "list_enum", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("active"));
-            assert!(expected.contains("inactive"));
-            assert!(expected.contains("pending"));
-            assert_eq!(got, "\"unknown_status\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for enum validation, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("active"));
+        assert!(expected.contains("inactive"));
+        assert!(expected.contains("pending"));
+        assert_eq!(got, "\"unknown_status\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for enum validation, got: {err_str}");
     }
 
     // Test empty list validation (should fail at runner level, not constraint level)
     let params = serde_json::json!({"ints": []});
     let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "non-empty list");
-            assert_eq!(got, "empty array");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for empty list, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "non-empty list");
+        assert_eq!(got, "empty array");
+    } else {
+        panic!("Expected ParameterTypeMismatch for empty list, got: {err_str}");
     }
 
     // Test list with wrong basic type (pass non-array)
     let params = serde_json::json!({"ints": "not_an_array"});
     let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "list");
-            assert_eq!(got, "\"not_an_array\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for non-array list, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "list");
+        assert_eq!(got, "\"not_an_array\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-array list, got: {err_str}");
     }
 }

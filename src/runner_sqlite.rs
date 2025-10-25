@@ -1,6 +1,6 @@
 use crate::{
     QueryDefinitions, parameters,
-    result::{JankenError, QueryResult, Result},
+    result::{JankenError, QueryResult},
     str_utils::split_sql_statements,
 };
 
@@ -48,7 +48,7 @@ fn prepare_single_statement_sqlite(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<PreparedStatement> {
+) -> anyhow::Result<PreparedStatement> {
     // Use the generic parameter preparation (database-agnostic)
     let mut generic_statement = parameters::prepare_parameter_statement_generic(
         statement_sql,
@@ -91,7 +91,7 @@ fn execute_single_statement(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<String> {
+) -> anyhow::Result<String> {
     let prepared =
         prepare_single_statement_sqlite(statement_sql, all_parameters, request_params_obj)?;
     let named_params = prepared.as_named_params();
@@ -108,7 +108,7 @@ fn execute_mutation_query(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     tx: &rusqlite::Transaction,
-) -> Result<Vec<String>> {
+) -> anyhow::Result<Vec<String>> {
     let mut sql_statements = Vec::new();
     if query.sql.contains(';') {
         // Has parameters - split into individual statements and execute each one
@@ -143,7 +143,7 @@ pub fn execute_query_unified(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     tx: &rusqlite::Transaction,
-) -> Result<QueryResult> {
+) -> anyhow::Result<QueryResult> {
     if !query.returns.is_empty() {
         // Query with returns specified - return structured data
         let prepared =
@@ -202,7 +202,7 @@ pub fn query_run_sqlite(
     queries: &QueryDefinitions,
     query_name: &str,
     request_params: &serde_json::Value,
-) -> Result<QueryResult> {
+) -> anyhow::Result<QueryResult> {
     let query = queries
         .definitions
         .get(query_name)

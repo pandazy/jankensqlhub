@@ -52,12 +52,13 @@ async fn test_postgres_non_object_request_params_error() {
 
     // Check that the error is the expected ParameterTypeMismatch
     let err = result.unwrap_err();
-    assert!(matches!(err, JankenError::ParameterTypeMismatch { .. }));
-    if let JankenError::ParameterTypeMismatch { data } = err {
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
         let expected = error_meta(&data, M_EXPECTED).unwrap();
         let got = error_meta(&data, M_GOT).unwrap();
         assert_eq!(expected, "object");
         assert_eq!(got, "not object");
+    } else {
+        panic!("Expected ParameterTypeMismatch error");
     }
 
     // Test with array parameter instead of object
@@ -68,12 +69,13 @@ async fn test_postgres_non_object_request_params_error() {
 
     // Check that the error is the expected ParameterTypeMismatch
     let err = result.unwrap_err();
-    assert!(matches!(err, JankenError::ParameterTypeMismatch { .. }));
-    if let JankenError::ParameterTypeMismatch { data } = err {
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
         let expected = error_meta(&data, M_EXPECTED).unwrap();
         let got = error_meta(&data, M_GOT).unwrap();
         assert_eq!(expected, "object");
         assert_eq!(got, "not object");
+    } else {
+        panic!("Expected ParameterTypeMismatch error");
     }
 
     // Test with number parameter instead of object
@@ -84,12 +86,13 @@ async fn test_postgres_non_object_request_params_error() {
 
     // Check that the error is the expected ParameterTypeMismatch
     let err = result.unwrap_err();
-    assert!(matches!(err, JankenError::ParameterTypeMismatch { .. }));
-    if let JankenError::ParameterTypeMismatch { data } = err {
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
         let expected = error_meta(&data, M_EXPECTED).unwrap();
         let got = error_meta(&data, M_GOT).unwrap();
         assert_eq!(expected, "object");
         assert_eq!(got, "not object");
+    } else {
+        panic!("Expected ParameterTypeMismatch error");
     }
 }
 

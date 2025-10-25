@@ -43,17 +43,17 @@ fn test_enumif_constraint_non_primitive_conditional_parameter_validation_error()
         &params,
     )
     .unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            // Since media_type has an enum constraint, it expects string type
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "string");
-            assert_eq!(got, "[1,2,3]");
-        }
-        _ => panic!(
-            "Expected ParameterTypeMismatch for non-string conditional parameter, got: {err:?}"
-        ),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        // Since media_type has an enum constraint, it expects string type
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "string");
+        assert_eq!(got, "[1,2,3]");
+    } else {
+        panic!(
+            "Expected ParameterTypeMismatch for non-string conditional parameter, got: {err_str}"
+        );
     }
 
     // Test with object as conditional parameter - should fail with basic type validation
@@ -65,17 +65,15 @@ fn test_enumif_constraint_non_primitive_conditional_parameter_validation_error()
         &params,
     )
     .unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            // Since media_type has an enum constraint, it expects string type
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "string");
-            assert_eq!(got, "{\"nested\":\"object\"}");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for object conditional parameter, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        // Since media_type has an enum constraint, it expects string type
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "string");
+        assert_eq!(got, "{\"nested\":\"object\"}");
+    } else {
+        panic!("Expected ParameterTypeMismatch for object conditional parameter, got: {err_str}")
     }
 
     // Test with null as conditional parameter - should fail with basic type validation
@@ -87,15 +85,15 @@ fn test_enumif_constraint_non_primitive_conditional_parameter_validation_error()
         &params,
     )
     .unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            // Since media_type has an enum constraint, it expects string type
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "string");
-            assert_eq!(got, "null");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for null conditional parameter, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        // Since media_type has an enum constraint, it expects string type
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "string");
+        assert_eq!(got, "null");
+    } else {
+        panic!("Expected ParameterTypeMismatch for null conditional parameter, got: {err_str}")
     }
 
     // Test with valid primitive conditional parameter - should work

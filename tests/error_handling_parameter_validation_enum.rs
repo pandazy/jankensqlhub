@@ -59,16 +59,16 @@ fn test_parameter_validation_enum() {
     let params = serde_json::json!({"status": "unknown"});
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_enum_string", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("active"));
-            assert!(expected.contains("inactive"));
-            assert!(expected.contains("pending"));
-            assert_eq!(got, "\"unknown\"");
-        }
-        _ => panic!("Wrong error type: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("active"));
+        assert!(expected.contains("inactive"));
+        assert!(expected.contains("pending"));
+        assert_eq!(got, "\"unknown\"");
+    } else {
+        panic!("Wrong error type: {err_str}");
     }
 
     // Test integer enum - should work
@@ -78,18 +78,18 @@ fn test_parameter_validation_enum() {
 
     let params = serde_json::json!({"level": 10}); // Not in enum [1,2,3,4,5]
     let err = query_run_sqlite(&mut conn, &queries, "select_with_enum_int", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("1"));
-            assert!(expected.contains("2"));
-            assert!(expected.contains("3"));
-            assert!(expected.contains("4"));
-            assert!(expected.contains("5"));
-            assert_eq!(got, "10");
-        }
-        _ => panic!("Wrong error type: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("1"));
+        assert!(expected.contains("2"));
+        assert!(expected.contains("3"));
+        assert!(expected.contains("4"));
+        assert!(expected.contains("5"));
+        assert_eq!(got, "10");
+    } else {
+        panic!("Wrong error type: {err_str}");
     }
 
     // Test table_name enum - should validate enum values but also pass normal table_name validation
@@ -113,15 +113,15 @@ fn test_parameter_validation_enum() {
     let params = serde_json::json!({"table_name": "admin"}); // "admin" is not in enum ["users", "products", "orders"]
     let err =
         query_run_sqlite(&mut conn2, &queries, "select_with_enum_table", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("users"));
-            assert!(expected.contains("products"));
-            assert!(expected.contains("orders"));
-            assert_eq!(got, "\"admin\"");
-        }
-        _ => panic!("Wrong error type: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("users"));
+        assert!(expected.contains("products"));
+        assert!(expected.contains("orders"));
+        assert_eq!(got, "\"admin\"");
+    } else {
+        panic!("Wrong error type: {err_str}");
     }
 }

@@ -36,13 +36,12 @@ fn test_query_not_found() {
     // Try to run a query that doesn't exist
     let params = serde_json::json!({});
     let err = query_run_sqlite(&mut conn, &queries, "non_existent_query", &params).unwrap_err();
-
-    match err {
-        JankenError::QueryNotFound { data } => {
-            let name = error_meta(&data, M_QUERY_NAME).unwrap();
-            assert_eq!(name, "non_existent_query");
-        }
-        _ => panic!("Expected QueryNotFound error, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::QueryNotFound { data }) = err.downcast::<JankenError>() {
+        let name = error_meta(&data, M_QUERY_NAME).unwrap();
+        assert_eq!(name, "non_existent_query");
+    } else {
+        panic!("Expected QueryNotFound error, got: {err_str}");
     }
 }
 

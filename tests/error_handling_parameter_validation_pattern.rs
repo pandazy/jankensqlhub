@@ -58,26 +58,26 @@ fn test_parameter_validation_pattern() {
 
     let params = serde_json::json!({"email": "invalid-email"});
     let err = query_run_sqlite(&mut conn, &queries, "email_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("string matching pattern"));
-            assert_eq!(got, "invalid-email");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid email pattern, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("string matching pattern"));
+        assert_eq!(got, "invalid-email");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid email pattern, got: {err_str}");
     }
 
     let params = serde_json::json!({"phone": "invalid-phone"});
     let err = query_run_sqlite(&mut conn, &queries, "phone_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert!(expected.contains("string matching pattern"));
-            assert_eq!(got, "invalid-phone");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid phone pattern, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("string matching pattern"));
+        assert_eq!(got, "invalid-phone");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid phone pattern, got: {err_str}");
     }
 }
 
@@ -114,32 +114,28 @@ fn test_parameter_validation_pattern_non_string() {
     let params = serde_json::json!({"id": 123});
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_pattern_int", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "string");
-            assert_eq!(got, "123");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for non-string pattern validation, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "string");
+        assert_eq!(got, "123");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-string pattern validation, got: {err_str}")
     }
 
     // Boolean parameter with pattern constraint should fail with "string" error
     let params = serde_json::json!({"active": true});
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_pattern_bool", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "string");
-            assert_eq!(got, "true");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for non-string pattern validation, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "string");
+        assert_eq!(got, "true");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-string pattern validation, got: {err_str}")
     }
 }
 
@@ -207,17 +203,17 @@ fn test_parameter_validation_pattern_table_name() {
     for (params, expected_got) in invalid_cases {
         let err =
             query_run_sqlite(&mut conn, &queries, "table_pattern_query", &params).unwrap_err();
-        match err {
-            JankenError::ParameterTypeMismatch { data } => {
-                let expected = error_meta(&data, M_EXPECTED).unwrap();
-                let got = error_meta(&data, M_GOT).unwrap();
-                assert!(
-                    expected.contains("string matching pattern"),
-                    "Expected pattern validation error"
-                );
-                assert_eq!(got, expected_got);
-            }
-            _ => panic!("Expected ParameterTypeMismatch for invalid pattern, got: {err:?}"),
+        let err_str = format!("{err:?}");
+        if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
+            assert!(
+                expected.contains("string matching pattern"),
+                "Expected pattern validation error"
+            );
+            assert_eq!(got, expected_got);
+        } else {
+            panic!("Expected ParameterTypeMismatch for invalid pattern, got: {err_str}");
         }
     }
 }
