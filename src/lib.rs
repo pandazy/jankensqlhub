@@ -2,10 +2,10 @@ pub mod parameter_constraints;
 pub mod parameters;
 pub mod query;
 pub mod result;
-pub mod runner;
+pub mod str_utils;
 #[cfg(feature = "sqlite")]
 pub mod runner_sqlite;
-pub mod str_utils;
+
 
 // PostgreSQL runner (now available in production builds)
 #[cfg(feature = "postgresql")]
