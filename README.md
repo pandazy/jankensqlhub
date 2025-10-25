@@ -189,7 +189,13 @@ let params = serde_json::json!({"dest_table": "users", "name": "Bob"});
 let query_result = query_run_sqlite(&mut conn, &queries, "insert_into_dynamic_table", &params)?;
 ```
 
-### 4. Parameter Types and Constraints Supported
+### 4. Important Usage Notes
+
+**JSON null values are not supported in requests and will be rejected.** All parameter values must be non-null JSON values (strings, numbers, booleans, arrays, objects).
+
+*Despite the convenience null might provide, it acts as a super-passport that circumvents type validation - it implicitly "matches" almost all data types when explicit "required" validation isn't specified. This leads to weaker type safety and potential security issues, so JankenSQLHub rejects null values upfront to maintain strict type validation.*
+
+### 5. Parameter Types and Constraints Supported
 
 **Automatic Type Assignment:**
 - `@param` parameters: Default to "string" type (can be overridden)
@@ -287,44 +293,43 @@ The `enumif` constraint allows parameter validation based on the values of other
 ### Programmatic Error Handling
 ```rust
 use jankensqlhub::{JankenError, error_meta, get_error_data, get_error_info, M_EXPECTED, M_GOT, M_PARAM_NAME, M_QUERY_NAME};
+use std::error::Error;
 
-// Extract error data from any JankenError variant
-let data = get_error_data(&error);
-let code = data.code;
-let metadata = &data.metadata;
+// Check if this is a structured JankenError (for query/parameter validation issues)
+if let Some(janken_err) = error.downcast_ref::<JankenError>() {
+    // Extract error data from the JankenError variant
+    let data = get_error_data(janken_err);
 
-// Look up comprehensive error information
-if let Some(info) = get_error_info(code) {
-    eprintln!("{} ({}) - {}", info.name, code, info.description);
-}
+    // Look up comprehensive error information
+    if let Some(info) = get_error_info(data.code) {
+        eprintln!("{} ({}) - {}", info.name, data.code, info.description);
+    }
 
-// Extract specific metadata fields using constants
-match &error {
-    JankenError::ParameterTypeMismatch { .. } => {
-        let expected = error_meta(data, M_EXPECTED)?;
-        let got = error_meta(data, M_GOT)?;
-        eprintln!("Type mismatch: expected {}, got {}", expected, got);
+    // Handle specific JankenError variants
+    match janken_err {
+        JankenError::ParameterTypeMismatch { .. } => {
+            let expected = error_meta(data, M_EXPECTED)?;
+            let got = error_meta(data, M_GOT)?;
+            eprintln!("Type mismatch: expected {}, got {}", expected, got);
+        }
+        JankenError::ParameterNotProvided { .. } => {
+            let param_name = error_meta(data, M_PARAM_NAME)?;
+            eprintln!("Missing required parameter: {}", param_name);
+        }
+        JankenError::QueryNotFound { .. } => {
+            let query_name = error_meta(data, M_QUERY_NAME)?;
+            eprintln!("Query not found: {}", query_name);
+        }
     }
-    JankenError::ParameterNotProvided { .. } => {
-        let param_name = error_meta(data, M_PARAM_NAME)?;
-        eprintln!("Missing required parameter: {}", param_name);
-    }
-    JankenError::QueryNotFound { .. } => {
-        let query_name = error_meta(data, M_QUERY_NAME)?;
-        eprintln!("Query not found: {}", query_name);
-    }
-    _ => {
-        eprintln!("Error {} occurred", code);
-    }
+} else {
+    // Handle other errors (IO, JSON parsing, database connection issues, etc. from anyhow)
+    eprintln!("Error: {}", error);
 }
 ```
 
 ### Error Code Reference
 | Code | Error Type | Category | Description |
 |------|------------|----------|-------------|
-| 1000 | IO_ERROR | System | Input/output operation failed |
-| 1010 | JSON_ERROR | Serialization | JSON parsing or serialization failed |
-| 1040 | REGEX_ERROR | Pattern | Regular expression compilation or matching failed |
 | 2000 | QUERY_NOT_FOUND | Query | Requested query definition was not found |
 | 2010 | PARAMETER_NOT_PROVIDED | Parameter | Required parameter was not provided |
 | 2020 | PARAMETER_TYPE_MISMATCH | Parameter | Parameter value does not match expected type |
