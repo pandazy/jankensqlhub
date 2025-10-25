@@ -6,6 +6,12 @@ pub mod runner;
 pub mod runner_sqlite;
 pub mod str_utils;
 
+// PostgreSQL runner (now available in production builds)
+pub mod runner_postgresql;
+
+// Re-export PostgreSQL function for production use
+pub use runner_postgresql::query_run_postgresql;
+
 // Re-export types for convenience
 pub use parameters::{Parameter, ParameterType};
 pub use query::{QueryDef, QueryDefinitions};

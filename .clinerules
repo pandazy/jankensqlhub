@@ -1,10 +1,10 @@
 # JankenSQLHub Development Guidelines
 
-## Role
+## Cline Bot Role
 An experienced software engineer who has worked in major tech companies for over 20 years, specializing in database systems and Rust development.
 
 ## Project Context
-JankenSQLHub is a Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (currently SQLite, PostgreSQL planned).
+JankenSQLHub is a Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (currently SQLite and PostgreSQL).
 
 ## Routines
 To understand the repository's purpose, always check README.md first.
@@ -24,6 +24,7 @@ After running tests to verify functionality, always execute:
 - Try not to use loops in tests, except looping through an array that obviously has elements
 - Do not over-engineer tests
 - We should always assert exact value, avoid using vague assertion such as 'option.is_some' or 'result.is_ok', for success cases we always expect deterministic results
+- Do not use special numbers like PI or E, they will trigger unnecessary linting errors
 
 ## Code Quality Standards
 - Apply Occam's Razor, trying to be minimalist
@@ -40,14 +41,15 @@ After running tests to verify functionality, always execute:
 ### Core Modules (`src/`)
 
 ```
-├── lib.rs              # Entry point, module declarations, API re-exports
+├── lib.rs                # Entry point, module declarations, API re-exports
 ├── parameter_constraints.rs # Parameter constraint validation and parsing
-├── parameters.rs       # Parameter parsing, type validation, prepared statement creation
-├── query.rs           # Query definition creation and collection management
-├── result.rs          # Error types and result aliases
-├── runner.rs          # Module coordination and re-exports
-├── runner_sqlite.rs   # SQLite-specific query execution and type conversions
-└── str_utils.rs       # Shared SQL parsing utilities (quote detection, statement splitting)
+├── parameters.rs         # Parameter parsing, type validation, prepared statement creation
+├── query.rs             # Query definition creation and collection management
+├── result.rs            # Error types and result aliases
+├── runner.rs            # Shared query execution types and utilities
+├── runner_postgresql.rs # PostgreSQL-specific query execution and data mapping
+├── runner_sqlite.rs     # SQLite-specific query execution
+└── str_utils.rs         # Shared SQL parsing utilities (quote detection, statement splitting)
 ```
 
 ### Module Responsibilities
@@ -57,20 +59,28 @@ After running tests to verify functionality, always execute:
 | **`parameter_constraints.rs`** | Parameter constraint validation and parsing, including enum and enumif constraints | `parse_constraints()`, `ParameterConstraints::validate()` |
 | **`parameters.rs`** | SQL parameter handling including #[table] names and list parameters | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
 | **`query.rs`** | Query definition creation with parameter defaults, #[table] names, and list parameters | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
-| **`runner.rs`** | Module coordination and re-exports | `query_run_sqlite` re-export |
-| **`runner_sqlite.rs`** | SQLite-specific query execution and type conversions | `query_run_sqlite()`, `execute_query_unified()`, `prepare_single_statement()` |
+| **`runner.rs`** | Shared execution types and base runner structures | Shared types, utilities |
+| **`runner_postgresql.rs`** | PostgreSQL execution mechanics with dynamic #[table] and list parameter support | `query_run_postgresql()`, `execute_query_unified()`, `map_rows_to_json_data()` |
+| **`runner_sqlite.rs`** | SQLite execution mechanics with dynamic #[table] and list parameter support | `query_run_sqlite()` |
 | **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
 | **`result.rs`** | Query result structures with debug output and error types | `QueryResult`, `JankenError` enum |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
-- Current task name: flatten_structure
+- Current task name: decouple_param_analysis_from_db
 - Progress file name: `_progress_<task_name>.md`
 
 When a new task begins:
 1. Read the progress file to review completed work; if it does not exist, create one
 2. In case of exceeding context window capacity, save progress to the progress file, ensuring the saved content is clear and actionable for another LLM agent to resume the work
 
+
+## Documents update
+When being asked to update documents, check the codebase and see if any of the following documents have out-of-sync facts
+- README.md
+- release.md
+- op.md
+- .clinerules
 
 
 ## TODO LIST USAGE
