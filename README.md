@@ -324,8 +324,6 @@ match &error {
 |------|------------|----------|-------------|
 | 1000 | IO_ERROR | System | Input/output operation failed |
 | 1010 | JSON_ERROR | Serialization | JSON parsing or serialization failed |
-| 1020 | SQLITE_ERROR | Database | SQLite database operation failed |
-| 1030 | POSTGRES_ERROR | Database | PostgreSQL database operation failed |
 | 1040 | REGEX_ERROR | Pattern | Regular expression compilation or matching failed |
 | 2000 | QUERY_NOT_FOUND | Query | Requested query definition was not found |
 | 2010 | PARAMETER_NOT_PROVIDED | Parameter | Required parameter was not provided |
@@ -358,7 +356,7 @@ match &error {
 ## 📈 Roadmap
 
 ### Planned Enhancements
-- [ ] More robust error handling
+- [ ] TBD
 
 ### Database Backend Priorities
 1. ✅ SQLite (complete)

@@ -45,7 +45,10 @@ After running tests to verify functionality, always execute:
 ├── lib.rs                # Entry point, module declarations, API re-exports
 ├── parameter_constraints.rs # Parameter constraint validation and parsing
 ├── parameters.rs         # Parameter parsing, type validation, prepared statement creation
-├── query.rs             # Query definition creation and collection management
+├── query/              # Query definition creation and collection management
+│   ├── mod.rs
+│   ├── query_def.rs
+│   └── query_definitions.rs
 ├── result.rs            # Error types and result aliases
 ├── runner.rs            # Shared query execution types and utilities
 ├── runner_postgresql.rs # PostgreSQL-specific query execution and data mapping
@@ -73,13 +76,6 @@ After running tests to verify functionality, always execute:
 When a new task begins:
 1. Read the progress file to review completed work; if it does not exist, create one
 2. In case of exceeding context window capacity, save progress to the progress file, ensuring the saved content is clear and actionable for another LLM agent to resume the work
-
-### Current Active Task: `fix_test_compilation_failures`
-Fix all remaining test file compilation failures by updating error handling patterns to use `anyhow::Error` downcast instead of direct `JankenError` matching. Follow the pattern established in `tests/comprehensive_tests_injection.rs`. Progress tracked in `progress_fix_test_compilation_failures.md`.
-
-### Previous Active Task: `no_wrap_up_native_db_error`
-Remove `JankenError::Sqlite` and `JankenError::Postgres` variants and stop wrapping native database errors. Instead, throw the native `rusqlite::Error` and `tokio_postgres::Error` directly without custom wrapping. Progress tracked in `_progress_no_wrap_up_native_db_error.md`.
-
 
 ## Documents update
 When being asked to update documents, check the codebase and see if any of the following documents have out-of-sync facts

@@ -33,14 +33,13 @@ eprintln!("Type mismatch: expected {}, got {}", expected, got);
 | Category | Codes | Description |
 |----------|-------|-------------|
 | System | 1000-1040 | IO (1000), JSON (1010), Regex (1040) |
-| Database | 1020-1030 | SQLite (1020), PostgreSQL (1030) |
 | Query | 2000 | Query Not Found (2000) |
 | Parameter | 2010-2030 | Not Provided (2010), Type Mismatch (2020), Name Conflict (2030) |
 
 ### Benefits for Applications
 - **Programmatic Error Identification**: Use error codes for swtich/case logic and custom handling strategies
 - **Rich Contextual Information**: JSON metadata provides specific details (expected types, actual values, parameter names, etc.)
-- **Zero Manual Parsing**: Extract metadata fields directly with helpers and constants
+- **Convenient Metadata Extraction**: Extract metadata fields directly with helpers and constants (balances user convenience with flexible maintenance)
 - **Consistent API**: All error variants follow the same data structure across the library
 - **Descriptive Information**: Look up human-readable error descriptions and categories by code
 
