@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, M_QUERY_NAME, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -34,12 +36,12 @@ fn test_query_not_found() {
     // Try to run a query that doesn't exist
     let params = serde_json::json!({});
     let err = query_run_sqlite(&mut conn, &queries, "non_existent_query", &params).unwrap_err();
-
-    match err {
-        JankenError::QueryNotFound(name) => {
-            assert_eq!(name, "non_existent_query");
-        }
-        _ => panic!("Expected QueryNotFound error, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::QueryNotFound { data }) = err.downcast::<JankenError>() {
+        let name = error_meta(&data, M_QUERY_NAME).unwrap();
+        assert_eq!(name, "non_existent_query");
+    } else {
+        panic!("Expected QueryNotFound error, got: {err_str}");
     }
 }
 
@@ -50,10 +52,12 @@ fn test_transaction_keywords_error_from_sql() {
     let result = jankensqlhub::query::QueryDef::from_sql(bad_sql, None);
     assert!(result.is_err());
 
-    if let Err(jankensqlhub::result::JankenError::ParameterTypeMismatch { .. }) = result {
-        // Error is the expected type, good
-    } else {
-        panic!("Unexpected error type");
+    let err = result.unwrap_err();
+    match err {
+        JankenError::ParameterTypeMismatch { .. } => {
+            // Error is the expected type, good
+        }
+        _ => panic!("Unexpected error type: {err:?}"),
     }
 }
 
@@ -64,10 +68,12 @@ fn test_invalid_json_input_from_json() {
     let result = jankensqlhub::query::QueryDefinitions::from_json(bad_json);
     assert!(result.is_err());
 
-    if let Err(jankensqlhub::result::JankenError::ParameterTypeMismatch { .. }) = result {
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { .. }) = err.downcast::<JankenError>() {
         // Error is the expected type, good
     } else {
-        panic!("Unexpected error type");
+        panic!("Unexpected error type: {err_str}");
     }
 }
 
@@ -80,10 +86,12 @@ fn test_invalid_query_definition_structure_from_json() {
     let result = jankensqlhub::query::QueryDefinitions::from_json(bad_definition);
     assert!(result.is_err());
 
-    if let Err(jankensqlhub::result::JankenError::ParameterTypeMismatch { .. }) = result {
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { .. }) = err.downcast::<JankenError>() {
         // Error is the expected type, good
     } else {
-        panic!("Unexpected error type");
+        panic!("Unexpected error type: {err_str}");
     }
 }
 
@@ -101,12 +109,14 @@ fn test_from_json_invalid_returns_field() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "array of strings");
-            assert!(got.contains("not an array"));
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid returns field, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "array of strings");
+        assert!(got.contains("not an array"));
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid returns field, got: {err_str}");
     }
 }
 
@@ -121,12 +131,14 @@ fn test_from_json_non_object_input() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "object");
-            assert_eq!(got, "\"not an object\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "object");
+        assert_eq!(got, "\"not an object\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
     }
 
     // Test with array value
@@ -135,11 +147,12 @@ fn test_from_json_non_object_input() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(expected, "object");
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(expected, "object");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
     }
 
     // Test with number value
@@ -148,11 +161,12 @@ fn test_from_json_non_object_input() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(expected, "object");
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(expected, "object");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
     }
 }
 
@@ -177,12 +191,14 @@ fn test_from_json_missing_query_field() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "required 'query' field with string value");
-            assert_eq!(got, "missing_query: missing 'query' field");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for missing query field, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "required 'query' field with string value");
+        assert_eq!(got, "missing_query: missing 'query' field");
+    } else {
+        panic!("Expected ParameterTypeMismatch for missing query field, got: {err_str}");
     }
 }
 
@@ -199,12 +215,14 @@ fn test_from_json_query_definition_not_object() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "object");
-            assert_eq!(got, "invalid_query_def: \"not an object\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for non-object query definition, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "object");
+        assert_eq!(got, "invalid_query_def: \"not an object\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-object query definition, got: {err_str}");
     }
 }
 
@@ -229,7 +247,8 @@ fn test_parameter_name_conflict_error() {
 
         let err = result.unwrap_err();
         match err {
-            JankenError::ParameterNameConflict(name) => {
+            JankenError::ParameterNameConflict { data } => {
+                let name = error_meta(&data, "conflicting_name").unwrap();
                 assert_eq!(
                     name, expected_conflict_name,
                     "Conflict name mismatch for SQL: {sql}"
@@ -258,15 +277,17 @@ fn test_invalid_itemtype_definition_error() {
     let result = QueryDefinitions::from_json(json_definitions_invalid_table);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "item_type for list items cannot be TableName or List"
-            );
-            assert_eq!(got, "table_name");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid itemtype TableName, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "item_type for list items cannot be TableName or List"
+        );
+        assert_eq!(got, "table_name");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid itemtype TableName, got: {err_str}");
     }
 
     // Test List as item type - should fail at definition time
@@ -282,15 +303,17 @@ fn test_invalid_itemtype_definition_error() {
     let result = QueryDefinitions::from_json(json_definitions_invalid_list);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "item_type for list items cannot be TableName or List"
-            );
-            assert_eq!(got, "list");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid itemtype List, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "item_type for list items cannot be TableName or List"
+        );
+        assert_eq!(got, "list");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid itemtype List, got: {err_str}");
     }
 
     // Test invalid/malformed itemtype string - should fail at definition time
@@ -306,12 +329,14 @@ fn test_invalid_itemtype_definition_error() {
     let result = QueryDefinitions::from_json(json_definitions_invalid_type);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("integer, string, float, boolean, table_name, list or blob"));
-            assert_eq!(got, "invalid_type_not_supported");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid type string, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("integer, string, float, boolean, table_name, list or blob"));
+        assert_eq!(got, "invalid_type_not_supported");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid type string, got: {err_str}");
     }
 }
 
@@ -333,15 +358,17 @@ fn test_parameter_validation_range_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_not_array);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "array with exactly 2 numbers for range constraint"
-            );
-            assert!(got.contains("not_an_array"));
-        }
-        _ => panic!("Expected ParameterTypeMismatch for range not being an array, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "array with exactly 2 numbers for range constraint"
+        );
+        assert!(got.contains("not_an_array"));
+    } else {
+        panic!("Expected ParameterTypeMismatch for range not being an array, got: {err_str}");
     }
 
     // Test range array with wrong length (empty) - should fail at definition time
@@ -357,15 +384,17 @@ fn test_parameter_validation_range_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_empty_array);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "array with exactly 2 numbers for range constraint"
-            );
-            assert_eq!(got, "array with 0 elements");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for empty range array, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "array with exactly 2 numbers for range constraint"
+        );
+        assert_eq!(got, "array with 0 elements");
+    } else {
+        panic!("Expected ParameterTypeMismatch for empty range array, got: {err_str}");
     }
 
     // Test range array with wrong length (3 elements) - should fail at definition time
@@ -381,15 +410,17 @@ fn test_parameter_validation_range_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_three_elements);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "array with exactly 2 numbers for range constraint"
-            );
-            assert_eq!(got, "array with 3 elements");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for range array with 3 elements, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "array with exactly 2 numbers for range constraint"
+        );
+        assert_eq!(got, "array with 3 elements");
+    } else {
+        panic!("Expected ParameterTypeMismatch for range array with 3 elements, got: {err_str}");
     }
 
     // Test range array with non-number at first position - should fail at definition time
@@ -405,14 +436,14 @@ fn test_parameter_validation_range_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_non_number_first);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "number");
-            assert_eq!(got, "\"not_a_number\" at index 0");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for non-number at first position, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "number");
+        assert_eq!(got, "\"not_a_number\" at index 0");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-number at first position, got: {err_str}");
     }
 
     // Test range array with non-number at second position - should fail at definition time
@@ -428,14 +459,14 @@ fn test_parameter_validation_range_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_non_number_second);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "number");
-            assert_eq!(got, "\"not_a_number\" at index 1");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for non-number at second position, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "number");
+        assert_eq!(got, "\"not_a_number\" at index 1");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-number at second position, got: {err_str}");
     }
 
     // Test that valid range definition works (should not fail)

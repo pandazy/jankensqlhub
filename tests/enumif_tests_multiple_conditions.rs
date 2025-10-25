@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -79,15 +81,17 @@ fn test_enumif_constraint_multiple_conditions_alphabetical() {
     // Test invalid tags - should fail
     let params = serde_json::json!({"priority": "high", "category": "work", "tags": "immediate"}); // "immediate" from priority but "meeting" from category
     let err = query_run_sqlite(&mut conn, &queries, "insert_classified", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            // Should show category conditions (processed first alphabetically)
-            assert!(expected.contains("urgent"));
-            assert!(expected.contains("meeting"));
-            assert!(expected.contains("project"));
-            assert_eq!(got, "\"immediate\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for wrong category precedence, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        // Should show category conditions (processed first alphabetically)
+        assert!(expected.contains("urgent"));
+        assert!(expected.contains("meeting"));
+        assert!(expected.contains("project"));
+        assert_eq!(got, "\"immediate\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for wrong category precedence, got: {err_str}");
     }
 
     // Test with different category - should allow different values
@@ -98,16 +102,16 @@ fn test_enumif_constraint_multiple_conditions_alphabetical() {
     // Test invalid tags for personal category
     let params = serde_json::json!({"priority": "low", "category": "personal", "tags": "optional"}); // "optional" from priority but not in personal category
     let err = query_run_sqlite(&mut conn, &queries, "insert_classified", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            // Should show personal category conditions
-            assert!(expected.contains("family"));
-            assert!(expected.contains("health"));
-            assert!(expected.contains("hobby"));
-            assert_eq!(got, "\"optional\"");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for personal category validation, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        // Should show personal category conditions
+        assert!(expected.contains("family"));
+        assert!(expected.contains("health"));
+        assert!(expected.contains("hobby"));
+        assert_eq!(got, "\"optional\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for personal category validation, got: {err_str}")
     }
 }

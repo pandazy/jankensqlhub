@@ -1,4 +1,4 @@
-use jankensqlhub::{JankenError, QueryDefinitions};
+use jankensqlhub::{JankenError, M_EXPECTED, QueryDefinitions, error_meta};
 
 #[test]
 fn test_enumif_constraint_malformed_definition_errors() {
@@ -22,14 +22,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_invalid);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "object mapping condition values to allowed arrays"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for malformed enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "object mapping condition values to allowed arrays"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for malformed enumif, got: {err_str}");
     }
 
     // Test enumif with non-array values in conditions
@@ -51,11 +52,12 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_non_array);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(expected, "array of allowed values");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for non-array enumif values, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(expected, "array of allowed values");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-array enumif values, got: {err_str}");
     }
 
     // Test enumif with wrong top-level structure
@@ -73,14 +75,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_wrong_top);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "object mapping conditional parameters to conditions"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for wrong enumif structure, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "object mapping conditional parameters to conditions"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for wrong enumif structure, got: {err_str}");
     }
 
     // Test enumif with null value
@@ -98,14 +101,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_null);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "object mapping conditional parameters to conditions"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for null enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "object mapping conditional parameters to conditions"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for null enumif, got: {err_str}");
     }
 
     // Test enumif with string value
@@ -123,14 +127,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_string);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "object mapping conditional parameters to conditions"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for string enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "object mapping conditional parameters to conditions"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for string enumif, got: {err_str}");
     }
 
     // Test enumif with number value
@@ -148,14 +153,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_number);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "object mapping conditional parameters to conditions"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for number enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "object mapping conditional parameters to conditions"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for number enumif, got: {err_str}");
     }
 
     // Test enumif with boolean value
@@ -173,14 +179,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_boolean);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "object mapping conditional parameters to conditions"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for boolean enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "object mapping conditional parameters to conditions"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for boolean enumif, got: {err_str}");
     }
 
     // Test enumif with blob/array values - should be rejected
@@ -202,14 +209,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_blob_values);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "enumif allowed values to be primitives (string, number, or boolean)"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for blob values in enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "enumif allowed values to be primitives (string, number, or boolean)"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for blob values in enumif, got: {err_str}");
     }
 
     // Test enumif with object values - should be rejected
@@ -231,14 +239,15 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_object_values);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "enumif allowed values to be primitives (string, number, or boolean)"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for object values in enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "enumif allowed values to be primitives (string, number, or boolean)"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for object values in enumif, got: {err_str}");
     }
 
     // Test enumif with null values - should be rejected
@@ -260,13 +269,14 @@ fn test_enumif_constraint_malformed_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_null_values);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
-            assert_eq!(
-                expected,
-                "enumif allowed values to be primitives (string, number, or boolean)"
-            );
-        }
-        _ => panic!("Expected ParameterTypeMismatch for null values in enumif, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        assert_eq!(
+            expected,
+            "enumif allowed values to be primitives (string, number, or boolean)"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for null values in enumif, got: {err_str}");
     }
 }

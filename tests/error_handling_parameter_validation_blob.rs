@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -44,12 +46,14 @@ fn test_blob_parameter_validation() {
     let empty_blob = serde_json::json!([]);
     let params = serde_json::json!({"id": 2, "data": empty_blob});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("blob size between 1 and 100 bytes"));
-            assert_eq!(got, "0 bytes");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for too small blob, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("blob size between 1 and 100 bytes"));
+        assert_eq!(got, "0 bytes");
+    } else {
+        panic!("Expected ParameterTypeMismatch for too small blob, got: {err_str}");
     }
 
     // Test blob that's too large (over 100 bytes)
@@ -58,47 +62,55 @@ fn test_blob_parameter_validation() {
         large_blob.iter().map(|&b| serde_json::json!(b)).collect();
     let params = serde_json::json!({"id": 3, "data": large_blob_json});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("blob size between 1 and 100 bytes"));
-            assert_eq!(got, "101 bytes");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for too large blob, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("blob size between 1 and 100 bytes"));
+        assert_eq!(got, "101 bytes");
+    } else {
+        panic!("Expected ParameterTypeMismatch for too large blob, got: {err_str}");
     }
 
     // Test invalid blob format - not an array
     let params = serde_json::json!({"id": 4, "data": "not_an_array"});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "blob");
-            assert_eq!(got, "\"not_an_array\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid blob format, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "blob");
+        assert_eq!(got, "\"not_an_array\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid blob format, got: {err_str}");
     }
 
     // Test invalid blob data - array with non-byte values (over 255)
     let invalid_bytes = serde_json::json!([300, 400]); // Values over 255
     let params = serde_json::json!({"id": 5, "data": invalid_bytes});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("byte values (0-255) at index 0"));
-            assert_eq!(got, "300");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid byte values, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("byte values (0-255) at index 0"));
+        assert_eq!(got, "300");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid byte values, got: {err_str}");
     }
 
     // Test invalid blob data - array with non-numbers
     let invalid_bytes = serde_json::json!(["not", "numbers"]);
     let params = serde_json::json!({"id": 6, "data": invalid_bytes});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("byte values (0-255) at index 0"));
-            assert_eq!(got, "\"not\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for non-number values, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("byte values (0-255) at index 0"));
+        assert_eq!(got, "\"not\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for non-number values, got: {err_str}");
     }
 
     // Test with more realistic binary data - converting text to UTF-8 bytes

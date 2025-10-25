@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -100,12 +102,14 @@ fn test_enumif_primitive_conditional_parameter_validation() {
     let params = serde_json::json!({"key_name": "database_host", "value_type": "integer", "allowed_values": "host.example.com"}); // "integer" not allowed for "database_host"
     let err =
         query_run_sqlite(&mut conn, &queries, "primitive_string_condition", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("string"));
-            assert_eq!(got, "\"integer\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid enumif value, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("string"));
+        assert_eq!(got, "\"integer\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid enumif value, got: {err_str}");
     }
 
     // Test conditional parameter as any number (no enum restriction)
@@ -128,20 +132,20 @@ fn test_enumif_primitive_conditional_parameter_validation() {
     let params = serde_json::json!({"level": 5, "severity": "warning", "message": "Unknown level"}); // Level 5 not defined in conditions
     let err =
         query_run_sqlite(&mut conn, &queries, "primitive_number_condition", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "conditional parameter value that matches a defined condition"
-            );
-            assert_eq!(
-                got,
-                "value not covered by any enumif condition for parameter severity"
-            );
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for no matching enumif condition, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "conditional parameter value that matches a defined condition"
+        );
+        assert_eq!(
+            got,
+            "value not covered by any enumif condition for parameter severity"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for no matching enumif condition, got: {err_str}")
     }
 
     // Test conditional parameter as boolean
@@ -165,11 +169,13 @@ fn test_enumif_primitive_conditional_parameter_validation() {
         serde_json::json!({"user_id": "user789", "is_admin": false, "permissions": "admin"}); // Regular user trying to get admin permissions
     let err =
         query_run_sqlite(&mut conn, &queries, "primitive_boolean_condition", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("read") && expected.contains("write"));
-            assert_eq!(got, "\"admin\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid boolean conditional, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("read") && expected.contains("write"));
+        assert_eq!(got, "\"admin\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid boolean conditional, got: {err_str}");
     }
 }

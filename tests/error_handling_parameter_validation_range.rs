@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -37,12 +39,13 @@ fn test_parameter_validation_range() {
 
     let params = serde_json::json!({"id": 0});
     let err = query_run_sqlite(&mut conn, &queries, "select_with_range", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("between 1 and 100"));
-            assert_eq!(got, "0");
-        }
-        _ => panic!("Wrong error type: {err:?}"),
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("between 1 and 100"));
+        assert_eq!(got, "0");
+    } else {
+        panic!("Expected ParameterTypeMismatch error");
     }
 }
 
@@ -71,12 +74,14 @@ fn test_parameter_validation_range_non_numeric() {
 
     for (params, expected_got) in cases {
         let err = query_run_sqlite(&mut conn, &queries, "select_with_range", &params).unwrap_err();
-        match err {
-            JankenError::ParameterTypeMismatch { expected, got } => {
-                assert_eq!(expected, "integer");
-                assert_eq!(got, expected_got);
-            }
-            _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+        let err_str = format!("{err:?}");
+        if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
+            assert_eq!(expected, "integer");
+            assert_eq!(got, expected_got);
+        } else {
+            panic!("Expected ParameterTypeMismatch, got: {err_str}");
         }
     }
 }
@@ -112,21 +117,25 @@ fn test_parameter_validation_range_wrong_type() {
     let params = serde_json::json!({"name": "test"});
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_range_string", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "numeric type or blob");
-            assert_eq!(got, "string");
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "numeric type or blob");
+        assert_eq!(got, "string");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
     }
 
     let params = serde_json::json!({"id": true});
     let err = query_run_sqlite(&mut conn, &queries, "select_with_range_bool", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "numeric type or blob");
-            assert_eq!(got, "boolean");
-        }
-        _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "numeric type or blob");
+        assert_eq!(got, "boolean");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
     }
 }

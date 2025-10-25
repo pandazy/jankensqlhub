@@ -1,6 +1,6 @@
 use crate::{
     QueryDefinitions, parameters,
-    result::{JankenError, QueryResult, Result},
+    result::{JankenError, QueryResult},
     str_utils::split_sql_statements,
 };
 
@@ -17,7 +17,6 @@ impl From<ParameterValue> for Box<dyn rusqlite::ToSql> {
             ParameterValue::Float(f) => Box::new(f),
             ParameterValue::Boolean(b) => Box::new(b as i32), // SQLite represents booleans as integers
             ParameterValue::Blob(bytes) => Box::new(bytes),
-            ParameterValue::Null => Box::new(rusqlite::types::Value::Null),
         }
     }
 }
@@ -49,7 +48,7 @@ fn prepare_single_statement_sqlite(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<PreparedStatement> {
+) -> anyhow::Result<PreparedStatement> {
     // Use the generic parameter preparation (database-agnostic)
     let mut generic_statement = parameters::prepare_parameter_statement_generic(
         statement_sql,
@@ -92,15 +91,14 @@ fn execute_single_statement(
     statement_sql: &str,
     all_parameters: &[crate::parameters::Parameter],
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
-) -> Result<String> {
+) -> anyhow::Result<String> {
     let prepared =
         prepare_single_statement_sqlite(statement_sql, all_parameters, request_params_obj)?;
     let named_params = prepared.as_named_params();
 
     // Now execute with the named parameter values
     let mut stmt = tx.prepare(&prepared.sql)?;
-    stmt.execute(&named_params[..])
-        .map_err(JankenError::Sqlite)?;
+    stmt.execute(&named_params[..])?;
     Ok(prepared.sql)
 }
 
@@ -110,7 +108,7 @@ fn execute_mutation_query(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     tx: &rusqlite::Transaction,
-) -> Result<Vec<String>> {
+) -> anyhow::Result<Vec<String>> {
     let mut sql_statements = Vec::new();
     if query.sql.contains(';') {
         // Has parameters - split into individual statements and execute each one
@@ -132,8 +130,7 @@ fn execute_mutation_query(
             prepare_single_statement_sqlite(&query.sql, &query.parameters, request_params_obj)?;
         let named_params = prepared.as_named_params();
         let mut stmt = tx.prepare(&prepared.sql)?;
-        stmt.execute(&named_params[..])
-            .map_err(JankenError::Sqlite)?;
+        stmt.execute(&named_params[..])?;
         sql_statements.push(prepared.sql);
     }
 
@@ -146,7 +143,7 @@ pub fn execute_query_unified(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     tx: &rusqlite::Transaction,
-) -> Result<QueryResult> {
+) -> anyhow::Result<QueryResult> {
     if !query.returns.is_empty() {
         // Query with returns specified - return structured data
         let prepared =
@@ -205,42 +202,22 @@ pub fn query_run_sqlite(
     queries: &QueryDefinitions,
     query_name: &str,
     request_params: &serde_json::Value,
-) -> Result<QueryResult> {
+) -> anyhow::Result<QueryResult> {
     let query = queries
         .definitions
         .get(query_name)
-        .ok_or_else(|| JankenError::QueryNotFound(query_name.to_string()))?;
+        .ok_or_else(|| JankenError::new_query_not_found(query_name.to_string()))?;
 
-    let request_params_obj =
-        request_params
-            .as_object()
-            .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                expected: "object".to_string(),
-                got: "not object".to_string(),
-            })?;
+    let request_params_obj = request_params
+        .as_object()
+        .ok_or_else(|| JankenError::new_parameter_type_mismatch("object", "not object"))?;
 
-    let tx = conn.transaction().map_err(JankenError::Sqlite)?;
+    let tx = conn.transaction()?;
 
     // Handle all queries uniformly within transactions
     let query_result = execute_query_unified(query, request_params_obj, &tx)?;
 
     // Always commit the transaction (for both single and multi-statement queries)
-    tx.commit().map_err(JankenError::Sqlite)?;
+    tx.commit()?;
     Ok(query_result)
-}
-
-#[cfg(test)]
-mod tests {
-    use rusqlite::types::ValueRef;
-
-    #[test]
-    fn test_parameter_value_null_to_sqlite_conversion() {
-        // Test the null edge case from line 20
-        let null_param = crate::parameters::ParameterValue::Null;
-        let sql_null: Box<dyn rusqlite::ToSql> = null_param.into();
-        match sql_null.to_sql().unwrap() {
-            rusqlite::types::ToSqlOutput::Borrowed(ValueRef::Null) => {} // Null conversion works correctly
-            _ => panic!("Expected Null value for ParameterValue::Null"),
-        }
-    }
 }

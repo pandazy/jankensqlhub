@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -28,12 +30,14 @@ fn test_parameter_type_mismatch() {
 
     let params = serde_json::json!({"id": "not_int"}); // id should be integer but got string
     let err = query_run_sqlite(&mut conn, &queries, "test_select", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "integer");
-            assert_eq!(got, "\"not_int\"");
-        }
-        _ => panic!("Wrong error type: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "integer");
+        assert_eq!(got, "\"not_int\"");
+    } else {
+        panic!("Wrong error type: {err_str}");
     }
 }
 
@@ -53,15 +57,17 @@ fn test_invalid_parameter_type_error() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "integer, string, float, boolean, table_name, list or blob"
-            );
-            assert_eq!(got, "invalid_type");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid parameter type, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "integer, string, float, boolean, table_name, list or blob"
+        );
+        assert_eq!(got, "invalid_type");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid parameter type, got: {err_str}");
     }
 }
 
@@ -100,12 +106,14 @@ fn test_sqlite_type_mismatch_errors() {
     let result = query_run_sqlite(&mut conn, &queries, "int_test", &request_params_string);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "object");
-            assert_eq!(got, "not object");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for non-object, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "object");
+        assert_eq!(got, "not object");
+    } else {
+        panic!("Wrong error type: {err_str}");
     }
 
     let mut conn = setup_db();
@@ -113,12 +121,14 @@ fn test_sqlite_type_mismatch_errors() {
     let result = query_run_sqlite(&mut conn, &queries, "int_test", &request_params);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "integer");
-            assert_eq!(got, "\"not_int\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for integer validation, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "integer");
+        assert_eq!(got, "\"not_int\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for integer validation, got: {err_str}");
     }
 
     let mut conn = setup_db();
@@ -126,12 +136,14 @@ fn test_sqlite_type_mismatch_errors() {
     let result = query_run_sqlite(&mut conn, &queries, "str_test", &request_params);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "string");
-            assert_eq!(got, "123");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for string validation, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "string");
+        assert_eq!(got, "123");
+    } else {
+        panic!("Expected ParameterTypeMismatch for string validation, got: {err_str}");
     }
 
     let mut conn = setup_db();
@@ -139,12 +151,14 @@ fn test_sqlite_type_mismatch_errors() {
     let result = query_run_sqlite(&mut conn, &queries, "float_test", &request_params);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "float");
-            assert_eq!(got, "\"not_a_number\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for float validation, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "float");
+        assert_eq!(got, "\"not_a_number\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for float validation, got: {err_str}");
     }
 
     let mut conn = setup_db();
@@ -152,14 +166,14 @@ fn test_sqlite_type_mismatch_errors() {
     let result = query_run_sqlite(&mut conn, &queries, "bool_test", &request_params);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "boolean");
-            assert_eq!(got, "[]");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for boolean validation with array, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "boolean");
+        assert_eq!(got, "[]");
+    } else {
+        panic!("Expected ParameterTypeMismatch for boolean validation with array, got: {err_str}");
     }
 
     // Test table_name parameter type error that triggers the uncovered Err(_) branch in row processing
@@ -177,11 +191,13 @@ fn test_sqlite_type_mismatch_errors() {
     let result = query_run_sqlite(&mut conn, &queries, "table_test", &request_params);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "table_name");
-            assert_eq!(got, "123");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for table_name parameter, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "table_name");
+        assert_eq!(got, "123");
+    } else {
+        panic!("Expected ParameterTypeMismatch for table_name parameter, got: {err_str}");
     }
 }

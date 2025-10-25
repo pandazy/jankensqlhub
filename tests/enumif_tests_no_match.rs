@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -38,39 +40,39 @@ fn test_enumif_constraint_no_matching_condition() {
     // Test with valid enum value but no matching enumif condition - should fail
     let params = serde_json::json!({"media_type": "movie", "source": "director"}); // "movie" not in enumif conditions
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "conditional parameter value that matches a defined condition"
-            );
-            assert_eq!(
-                got,
-                "value not covered by any enumif condition for parameter source"
-            );
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for no matching enumif condition, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "conditional parameter value that matches a defined condition"
+        );
+        assert_eq!(
+            got,
+            "value not covered by any enumif condition for parameter source"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for no matching enumif condition, got: {err_str}");
     }
 
     // Test with another value not covered by enumif
     let params = serde_json::json!({"media_type": "book", "source": "author"}); // "book" not in enumif conditions
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(
-                expected,
-                "conditional parameter value that matches a defined condition"
-            );
-            assert_eq!(
-                got,
-                "value not covered by any enumif condition for parameter source"
-            );
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for no matching enumif condition, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "conditional parameter value that matches a defined condition"
+        );
+        assert_eq!(
+            got,
+            "value not covered by any enumif condition for parameter source"
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for no matching enumif condition, got: {err_str}");
     }
 
     // Verify that values covered by enumif conditions work correctly

@@ -11,6 +11,7 @@ To understand the repository's purpose, always check README.md first.
 
 To run comprehensive tests that include both SQLite and PostgreSQL testing:
 - `sh run-local-tests.sh` - Automatically sets up PostgreSQL environment and runs all tests
+- `run-local-tests.sh` is the test that can verify errors, don't depend on just `cargo tests`
 
 After running tests to verify functionality, always execute:
 - `cargo clippy --fix --allow-dirty` to fix any compiler warnings
@@ -44,7 +45,10 @@ After running tests to verify functionality, always execute:
 ├── lib.rs                # Entry point, module declarations, API re-exports
 ├── parameter_constraints.rs # Parameter constraint validation and parsing
 ├── parameters.rs         # Parameter parsing, type validation, prepared statement creation
-├── query.rs             # Query definition creation and collection management
+├── query/              # Query definition creation and collection management
+│   ├── mod.rs
+│   ├── query_def.rs
+│   └── query_definitions.rs
 ├── result.rs            # Error types and result aliases
 ├── runner.rs            # Shared query execution types and utilities
 ├── runner_postgresql.rs # PostgreSQL-specific query execution and data mapping
@@ -58,7 +62,7 @@ After running tests to verify functionality, always execute:
 |--------|---------|---------------|
 | **`parameter_constraints.rs`** | Parameter constraint validation and parsing, including enum and enumif constraints | `parse_constraints()`, `ParameterConstraints::validate()` |
 | **`parameters.rs`** | SQL parameter handling including #[table] names and list parameters | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
-| **`query.rs`** | Query definition creation with parameter defaults, #[table] names, and list parameters | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
+| **`query/`** | Query definition creation with parameter defaults, #[table] names, and list parameters | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
 | **`runner.rs`** | Shared execution types and base runner structures | Shared types, utilities |
 | **`runner_postgresql.rs`** | PostgreSQL execution mechanics with dynamic #[table] and list parameter support | `query_run_postgresql()`, `execute_query_unified()`, `map_rows_to_json_data()` |
 | **`runner_sqlite.rs`** | SQLite execution mechanics with dynamic #[table] and list parameter support | `query_run_sqlite()` |
@@ -67,13 +71,11 @@ After running tests to verify functionality, always execute:
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
-- Current task name: decouple_param_analysis_from_db
-- Progress file name: `_progress_<task_name>.md`
+- Progress file naming convention: `_progress_<task_name>.md`
 
 When a new task begins:
 1. Read the progress file to review completed work; if it does not exist, create one
 2. In case of exceeding context window capacity, save progress to the progress file, ensuring the saved content is clear and actionable for another LLM agent to resume the work
-
 
 ## Documents update
 When being asked to update documents, check the codebase and see if any of the following documents have out-of-sync facts

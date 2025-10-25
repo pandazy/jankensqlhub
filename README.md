@@ -189,7 +189,13 @@ let params = serde_json::json!({"dest_table": "users", "name": "Bob"});
 let query_result = query_run_sqlite(&mut conn, &queries, "insert_into_dynamic_table", &params)?;
 ```
 
-### 4. Parameter Types and Constraints Supported
+### 4. Important Usage Notes
+
+**JSON null values are not supported in requests and will be rejected.** All parameter values must be non-null JSON values (strings, numbers, booleans, arrays, objects).
+
+*Despite the convenience null might provide, it acts as a super-passport that circumvents type validation - it implicitly "matches" almost all data types when explicit "required" validation isn't specified. This leads to weaker type safety and potential security issues, so JankenSQLHub rejects null values upfront to maintain strict type validation.*
+
+### 5. Parameter Types and Constraints Supported
 
 **Automatic Type Assignment:**
 - `@param` parameters: Default to "string" type (can be overridden)
@@ -275,6 +281,67 @@ The `enumif` constraint allows parameter validation based on the values of other
 }
 ```
 
+## 🛡️ Flexible Error Handling
+
+**Janken SQL Hub** provides structured error handling with unique error codes and JSON metadata for better debugging and customization. Each error includes:
+
+- **Unique Error Code**: u16 identifier for programmatic error identification
+- **Structured Metadata**: JSON string containing relevant contextual error details
+- **Helper Functions**: Extract metadata fields without parsing JSON
+- **Error Information**: Look up comprehensive error descriptions by code
+
+### Programmatic Error Handling
+```rust
+use jankensqlhub::{JankenError, error_meta, get_error_data, get_error_info, M_EXPECTED, M_GOT, M_PARAM_NAME, M_QUERY_NAME};
+use std::error::Error;
+
+// Check if this is a structured JankenError (for query/parameter validation issues)
+if let Some(janken_err) = error.downcast_ref::<JankenError>() {
+    // Extract error data from the JankenError variant
+    let data = get_error_data(janken_err);
+
+    // Look up comprehensive error information
+    if let Some(info) = get_error_info(data.code) {
+        eprintln!("{} ({}) - {}", info.name, data.code, info.description);
+    }
+
+    // Handle specific JankenError variants
+    match janken_err {
+        JankenError::ParameterTypeMismatch { .. } => {
+            let expected = error_meta(data, M_EXPECTED)?;
+            let got = error_meta(data, M_GOT)?;
+            eprintln!("Type mismatch: expected {}, got {}", expected, got);
+        }
+        JankenError::ParameterNotProvided { .. } => {
+            let param_name = error_meta(data, M_PARAM_NAME)?;
+            eprintln!("Missing required parameter: {}", param_name);
+        }
+        JankenError::QueryNotFound { .. } => {
+            let query_name = error_meta(data, M_QUERY_NAME)?;
+            eprintln!("Query not found: {}", query_name);
+        }
+    }
+} else {
+    // Handle other errors (IO, JSON parsing, database connection issues, etc. from anyhow)
+    eprintln!("Error: {}", error);
+}
+```
+
+### Error Code Reference
+| Code | Error Type | Category | Description |
+|------|------------|----------|-------------|
+| 2000 | QUERY_NOT_FOUND | Query | Requested query definition was not found |
+| 2010 | PARAMETER_NOT_PROVIDED | Parameter | Required parameter was not provided |
+| 2020 | PARAMETER_TYPE_MISMATCH | Parameter | Parameter value does not match expected type |
+| 2030 | PARAMETER_NAME_CONFLICT | Parameter | Parameter name conflicts with table name |
+
+### Example Error Metadata
+- **Parameter Type Mismatch**: `{"expected": "integer", "got": "\"not_int\""}`
+- **Query Not Found**: `{"query_name": "find_user_by_id"}`
+- **Parameter Not Provided**: `{"parameter_name": "user_id"}`
+- **Parameter Name Conflict**: `{"conflicting_name": "users"}`
+- **JSON Error**: `{"line": 5, "column": 12}`
+
 ## ⚡ Performance Characteristics
 
 - **Regex Compilation**: One-time lazy static initialization
@@ -294,7 +361,7 @@ The `enumif` constraint allows parameter validation based on the values of other
 ## 📈 Roadmap
 
 ### Planned Enhancements
-- [ ] More robust error handling
+- [ ] TBD
 
 ### Database Backend Priorities
 1. ✅ SQLite (complete)

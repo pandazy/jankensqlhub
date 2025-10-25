@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -29,14 +31,14 @@ fn test_enum_and_enumif_mutual_exclusion() {
     );
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert_eq!(expected, "either 'enum' or 'enumif', not both");
-            assert_eq!(got, "'enum' and 'enumif' both specified");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for enum and enumif both present, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "either 'enum' or 'enumif', not both");
+        assert_eq!(got, "'enum' and 'enumif' both specified");
+    } else {
+        panic!("Expected ParameterTypeMismatch for enum and enumif both present, got: {err_str}");
     }
 
     // Test that only enum works fine (no enumif)
@@ -129,46 +131,53 @@ fn test_enumif_constraint_validation() {
     // Test invalid conditional enum values should fail
     let params = serde_json::json!({"media_type": "song", "source": "channel"}); // "channel" is not allowed for "song"
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("artist"));
-            assert!(expected.contains("album"));
-            assert!(expected.contains("title"));
-            assert_eq!(got, "\"channel\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid conditional enum, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("artist"));
+        assert!(expected.contains("album"));
+        assert!(expected.contains("title"));
+        assert_eq!(got, "\"channel\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid conditional enum, got: {err_str}");
     }
 
     let params = serde_json::json!({"media_type": "show", "source": "album"}); // "album" is not allowed for "show"
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("channel"));
-            assert!(expected.contains("category"));
-            assert!(expected.contains("episodes"));
-            assert_eq!(got, "\"album\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid conditional enum, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("channel"));
+        assert!(expected.contains("category"));
+        assert!(expected.contains("episodes"));
+        assert_eq!(got, "\"album\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid conditional enum, got: {err_str}");
     }
 
     // Test with unknown media_type that violates the enum constraint first - should fail
     let params = serde_json::json!({"media_type": "unknown", "source": "any_value"}); // "unknown" is not in enum ["song", "show"]
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
-            assert!(expected.contains("song") && expected.contains("show"));
-            assert_eq!(got, "\"unknown\"");
-        }
-        _ => panic!("Expected ParameterTypeMismatch for invalid enum value, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("song") && expected.contains("show"));
+        assert_eq!(got, "\"unknown\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid enum value, got: {err_str}");
     }
 
     // Test with missing conditional parameter - should fail
     let params = serde_json::json!({"source": "artist"}); // missing media_type
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
-    match err {
-        JankenError::ParameterNotProvided(name) => {
-            assert_eq!(name, "media_type");
-        }
-        _ => panic!("Expected ParameterNotProvided for missing conditional param, got: {err:?}"),
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterNotProvided { data }) = err.downcast::<JankenError>() {
+        let name = error_meta(&data, "parameter_name").unwrap();
+        assert_eq!(name, "media_type");
+    } else {
+        panic!("Expected ParameterNotProvided for missing conditional param, got: {err_str}");
     }
 }
