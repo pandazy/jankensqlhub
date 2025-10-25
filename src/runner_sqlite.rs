@@ -17,7 +17,6 @@ impl From<ParameterValue> for Box<dyn rusqlite::ToSql> {
             ParameterValue::Float(f) => Box::new(f),
             ParameterValue::Boolean(b) => Box::new(b as i32), // SQLite represents booleans as integers
             ParameterValue::Blob(bytes) => Box::new(bytes),
-            ParameterValue::Null => Box::new(rusqlite::types::Value::Null),
         }
     }
 }
@@ -221,20 +220,4 @@ pub fn query_run_sqlite(
     // Always commit the transaction (for both single and multi-statement queries)
     tx.commit()?;
     Ok(query_result)
-}
-
-#[cfg(test)]
-mod tests {
-    use rusqlite::types::ValueRef;
-
-    #[test]
-    fn test_parameter_value_null_to_sqlite_conversion() {
-        // Test the null edge case from line 20
-        let null_param = crate::parameters::ParameterValue::Null;
-        let sql_null: Box<dyn rusqlite::ToSql> = null_param.into();
-        match sql_null.to_sql().unwrap() {
-            rusqlite::types::ToSqlOutput::Borrowed(ValueRef::Null) => {} // Null conversion works correctly
-            _ => panic!("Expected Null value for ParameterValue::Null"),
-        }
-    }
 }

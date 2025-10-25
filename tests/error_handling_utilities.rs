@@ -100,6 +100,38 @@ fn test_get_error_data() {
     let data = get_error_data(&err);
     assert_eq!(data.code, 2030); // ERR_CODE_PARAMETER_NAME_CONFLICT
     assert!(data.metadata.is_some());
+
+    // Test Io variant
+    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "test io error");
+    let err = JankenError::from(io_err);
+    let data = get_error_data(&err);
+    assert_eq!(data.code, 1000); // ERR_CODE_IO
+    assert!(data.metadata.is_some());
+
+    // Test Json variant using From<serde_json::Error>
+    let json_str = "invalid json {{{";
+    let json_err = serde_json::from_str::<serde_json::Value>(json_str).unwrap_err();
+    let err = JankenError::from(json_err);
+    let data = get_error_data(&err);
+    assert_eq!(data.code, 1010); // ERR_CODE_JSON
+    assert!(data.metadata.is_some());
+
+    // Test Sqlite variant
+    let sqlite_err = rusqlite::Error::QueryReturnedNoRows;
+    let err = JankenError::from(sqlite_err);
+    let data = get_error_data(&err);
+    assert_eq!(data.code, 1020); // ERR_CODE_SQLITE
+    assert!(data.metadata.is_some());
+
+    // Test Postgres variant (postgres errors are tested in integration tests due to complexity of error creation)
+
+    // Test Regex variant using From<regex::Error>
+    let regex_pattern = "[invalid";
+    let regex_err = regex::Regex::new(regex_pattern).unwrap_err();
+    let err = JankenError::from(regex_err);
+    let data = get_error_data(&err);
+    assert_eq!(data.code, 1040); // ERR_CODE_REGEX
+    assert!(data.metadata.is_some());
 }
 
 #[test]
@@ -241,4 +273,40 @@ fn test_get_error_info() {
         ERR_CODE_PARAMETER_NAME_CONFLICT
     );
     assert_eq!(regex_info.code, ERR_CODE_REGEX);
+}
+
+#[allow(clippy::invalid_regex)]
+#[test]
+fn test_from_trait_implementations() {
+    // Test that From trait implementations correctly convert external errors to JankenError
+
+    // Test From<serde_json::Error>
+    let json_err = serde_json::from_str::<serde_json::Value>("{invalid json").unwrap_err();
+    let janken_err: JankenError = json_err.into(); // Using into() which calls From::from()
+    assert!(matches!(janken_err, JankenError::Json { .. }));
+    let data = get_error_data(&janken_err);
+    assert_eq!(data.code, ERR_CODE_JSON);
+
+    // Test From<regex::Error> using an intentionally invalid regex pattern
+    let regex_err = regex::Regex::new(r"(unclosed").unwrap_err();
+    let janken_err: JankenError = regex_err.into();
+    assert!(matches!(janken_err, JankenError::Regex { .. }));
+    let data = get_error_data(&janken_err);
+    assert_eq!(data.code, ERR_CODE_REGEX);
+
+    // Test other From implementations for completeness
+    let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied");
+    let janken_err: JankenError = io_err.into();
+    assert!(matches!(janken_err, JankenError::Io { .. }));
+    let data = get_error_data(&janken_err);
+    assert_eq!(data.code, ERR_CODE_IO);
+
+    let sqlite_err =
+        rusqlite::Error::InvalidColumnType(0, "test".to_string(), rusqlite::types::Type::Text);
+    let janken_err: JankenError = sqlite_err.into();
+    assert!(matches!(janken_err, JankenError::Sqlite { .. }));
+    let data = get_error_data(&janken_err);
+    assert_eq!(data.code, ERR_CODE_SQLITE);
+
+    // Postgres From implementation is tested in integration tests due to complexity of creating tokio_postgres::Error
 }

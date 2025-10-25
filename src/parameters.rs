@@ -174,7 +174,6 @@ pub enum ParameterValue {
     Float(f64),
     Boolean(bool),
     Blob(Vec<u8>),
-    Null,
 }
 
 /// Prepared statement with generic parameter values (database-agnostic)
@@ -186,25 +185,28 @@ pub struct PreparedParameterStatement {
 
 /// Convert a JSON value to a generic ParameterValue with type inference
 /// Used for list items where the type is inferred from the JSON value itself
-/// This handles: String->String, Number->Integer/Float, Bool->Boolean, Null->Null, Array/Object->JSON string
-pub fn json_value_to_parameter_value_inferred(item: &serde_json::Value) -> ParameterValue {
+/// This handles: String->String, Number->Integer/Float, Bool->Boolean, Array/Object->JSON string
+pub fn json_value_to_parameter_value_inferred(item: &serde_json::Value) -> Result<ParameterValue> {
     match item {
-        serde_json::Value::String(s) => ParameterValue::String(s.clone()),
+        serde_json::Value::String(s) => Ok(ParameterValue::String(s.clone())),
         serde_json::Value::Number(n) => {
             if n.is_i64() {
                 // Safe unwrap: numbers are validated by constraints to be valid i64/f64
-                ParameterValue::Integer(n.as_i64().unwrap())
+                Ok(ParameterValue::Integer(n.as_i64().unwrap()))
             } else {
                 // Safe unwrap: numbers are validated by constraints to be valid i64/f64
-                ParameterValue::Float(n.as_f64().unwrap())
+                Ok(ParameterValue::Float(n.as_f64().unwrap()))
             }
         }
-        serde_json::Value::Bool(b) => ParameterValue::Boolean(*b),
-        serde_json::Value::Null => ParameterValue::Null,
+        serde_json::Value::Bool(b) => Ok(ParameterValue::Boolean(*b)),
+        serde_json::Value::Null => Err(JankenError::new_parameter_type_mismatch(
+            "non-null value",
+            "null",
+        )),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
             // Arrays and objects get converted to JSON strings
             // Safe unwrap: serde_json::Value is always valid JSON and can always be serialized
-            ParameterValue::String(serde_json::to_string(item).unwrap())
+            Ok(ParameterValue::String(serde_json::to_string(item).unwrap()))
         }
     }
 }
@@ -356,7 +358,7 @@ pub fn prepare_parameter_statement_generic(
                     placeholders.push(format!("@{param_key}")); // Keep @ for consistency
 
                     // Convert JSON value to generic ParameterValue with type inference
-                    let generic_value = json_value_to_parameter_value_inferred(item);
+                    let generic_value = json_value_to_parameter_value_inferred(item)?;
                     parameters.push((param_key, generic_value));
                 }
 
@@ -495,37 +497,40 @@ mod tests {
     fn test_json_value_to_parameter_value_inferred() {
         // Test string
         let json_str = json!("hello");
-        let result = json_value_to_parameter_value_inferred(&json_str);
+        let result = json_value_to_parameter_value_inferred(&json_str).unwrap();
         assert_eq!(result, ParameterValue::String("hello".to_string()));
 
         // Test integer
         let json_int = json!(42);
-        let result = json_value_to_parameter_value_inferred(&json_int);
+        let result = json_value_to_parameter_value_inferred(&json_int).unwrap();
         assert_eq!(result, ParameterValue::Integer(42));
 
         // Test float
         let json_float = json!(3.15);
-        let result = json_value_to_parameter_value_inferred(&json_float);
+        let result = json_value_to_parameter_value_inferred(&json_float).unwrap();
         assert_eq!(result, ParameterValue::Float(3.15));
 
         // Test boolean
         let json_bool = json!(true);
-        let result = json_value_to_parameter_value_inferred(&json_bool);
+        let result = json_value_to_parameter_value_inferred(&json_bool).unwrap();
         assert_eq!(result, ParameterValue::Boolean(true));
 
-        // Test null
+        // Test null - should now be rejected
         let json_null = json!(null);
         let result = json_value_to_parameter_value_inferred(&json_null);
-        assert_eq!(result, ParameterValue::Null);
+        assert!(matches!(
+            result,
+            Err(JankenError::ParameterTypeMismatch { .. })
+        ));
 
         // Test array (gets serialized as JSON string)
         let json_array = json!([1, 2, 3]);
-        let result = json_value_to_parameter_value_inferred(&json_array);
+        let result = json_value_to_parameter_value_inferred(&json_array).unwrap();
         assert_eq!(result, ParameterValue::String("[1,2,3]".to_string()));
 
         // Test object (gets serialized as JSON string)
         let json_obj = json!({"key": "value"});
-        let result = json_value_to_parameter_value_inferred(&json_obj);
+        let result = json_value_to_parameter_value_inferred(&json_obj).unwrap();
         assert_eq!(
             result,
             ParameterValue::String("{\"key\":\"value\"}".to_string())

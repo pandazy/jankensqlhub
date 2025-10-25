@@ -24,7 +24,7 @@ const POSTGRES_TYPE_OID_JSONB: u32 = 3802;
 
 /// Convert a generic ParameterValue directly to PostgreSQL ToSql trait object
 /// This provides easier testability by being a direct function call instead of a trait implementation
-pub fn parameter_value_to_postgresql_tosql(
+fn parameter_value_to_postgresql_tosql(
     param_value: ParameterValue,
 ) -> Box<dyn tokio_postgres::types::ToSql + Sync> {
     match param_value {
@@ -33,7 +33,6 @@ pub fn parameter_value_to_postgresql_tosql(
         ParameterValue::Float(f) => Box::new(f),
         ParameterValue::Boolean(b) => Box::new(b),
         ParameterValue::Blob(bytes) => Box::new(bytes),
-        ParameterValue::Null => Box::new(Option::<String>::None), // Represent null as None
     }
 }
 
@@ -323,4 +322,33 @@ pub async fn query_run_postgresql(
         .await
         .map_err(JankenError::new_postgres)?;
     Ok(query_result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parameter_value_float_to_postgresql_conversion() {
+        let float_param = crate::parameters::ParameterValue::Float(3.15);
+        let _sql_float: Box<dyn tokio_postgres::types::ToSql + Sync> =
+            parameter_value_to_postgresql_tosql(float_param);
+        // The conversion function works correctly if it doesn't panic
+    }
+
+    #[test]
+    fn test_parameter_value_boolean_to_postgresql_conversion() {
+        let bool_param = crate::parameters::ParameterValue::Boolean(true);
+        let _sql_bool: Box<dyn tokio_postgres::types::ToSql + Sync> =
+            parameter_value_to_postgresql_tosql(bool_param);
+        // The conversion function works correctly if it doesn't panic
+    }
+
+    #[test]
+    fn test_parameter_value_blob_to_postgresql_conversion() {
+        let blob_param = crate::parameters::ParameterValue::Blob(vec![1, 2, 3, 255]);
+        let _sql_blob: Box<dyn tokio_postgres::types::ToSql + Sync> =
+            parameter_value_to_postgresql_tosql(blob_param);
+        // The conversion function works correctly if it doesn't panic
+    }
 }

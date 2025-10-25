@@ -39,6 +39,11 @@ impl ParameterConstraints {
         value: &serde_json::Value,
         param_type: &crate::ParameterType,
     ) -> Result<()> {
+        // Null values are no longer allowed since ParameterValue::Null was removed
+        if value.is_null() {
+            return Err(Self::constraint_mismatch_error(param_type, value));
+        }
+
         match param_type {
             crate::ParameterType::String => {
                 if !value.is_string() {
@@ -137,56 +142,63 @@ impl ParameterConstraints {
             ));
         }
 
-        // Check range for numeric types and blob size
+        // Check range for numeric types and blob size (skip if value is null)
         if let Some(range) = &self.range {
-            match param_type {
-                crate::ParameterType::Integer | crate::ParameterType::Float => {
-                    // Validated upfront that param_type is Integer or Float, so value is number
-                    let num_val = value.as_f64().unwrap();
+            if !value.is_null() {
+                match param_type {
+                    crate::ParameterType::Integer | crate::ParameterType::Float => {
+                        // Validated upfront that param_type is Integer or Float, so value is number
+                        let num_val = value.as_f64().unwrap();
 
-                    if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
-                        if num_val < min || num_val > max {
-                            return Err(JankenError::new_parameter_type_mismatch(
-                                format!("value between {min} and {max}"),
-                                num_val.to_string(),
-                            ));
+                        if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
+                            if num_val < min || num_val > max {
+                                return Err(JankenError::new_parameter_type_mismatch(
+                                    format!("value between {min} and {max}"),
+                                    num_val.to_string(),
+                                ));
+                            }
                         }
                     }
-                }
-                crate::ParameterType::Blob => {
-                    // For blob, range represents min/max size in bytes
-                    let blob_size = value.as_array().unwrap().len() as f64;
+                    crate::ParameterType::Blob => {
+                        // For blob, range represents min/max size in bytes
+                        let blob_size = value.as_array().unwrap().len() as f64;
 
-                    if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
-                        if blob_size < min || blob_size > max {
-                            return Err(JankenError::new_parameter_type_mismatch(
-                                format!("blob size between {min} and {max} bytes"),
-                                format!("{blob_size} bytes"),
-                            ));
+                        if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
+                            if blob_size < min || blob_size > max {
+                                return Err(JankenError::new_parameter_type_mismatch(
+                                    format!("blob size between {min} and {max} bytes"),
+                                    format!("{blob_size} bytes"),
+                                ));
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 
-        // Check pattern for string types
+        // Check pattern for string types (skip if value is null)
         if let Some(pattern) = &self.pattern {
-            if let Some(string_val) = value.as_str() {
-                let regex = Regex::new(pattern).map_err(|_| {
-                    JankenError::new_parameter_type_mismatch("valid regex pattern", pattern.clone())
-                })?;
-                if !regex.is_match(string_val) {
+            if !value.is_null() {
+                if let Some(string_val) = value.as_str() {
+                    let regex = Regex::new(pattern).map_err(|_| {
+                        JankenError::new_parameter_type_mismatch(
+                            "valid regex pattern",
+                            pattern.clone(),
+                        )
+                    })?;
+                    if !regex.is_match(string_val) {
+                        return Err(JankenError::new_parameter_type_mismatch(
+                            format!("string matching pattern '{pattern}'"),
+                            string_val,
+                        ));
+                    }
+                } else {
                     return Err(JankenError::new_parameter_type_mismatch(
-                        format!("string matching pattern '{pattern}'"),
-                        string_val,
+                        ParameterType::String.to_string(),
+                        value.to_string(),
                     ));
                 }
-            } else {
-                return Err(JankenError::new_parameter_type_mismatch(
-                    ParameterType::String.to_string(),
-                    value.to_string(),
-                ));
             }
         }
 
