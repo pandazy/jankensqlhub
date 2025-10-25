@@ -401,6 +401,26 @@ See the [operational guide](op.md) for testing setup and development instruction
 cargo add jankensqlhub
 ```
 
+### Feature Flags
+
+JankenSQLHub supports feature flags to include only the database backends you need:
+
+- **`all`** (default): Enable both SQLite and PostgreSQL support
+- **`sqlite`**: Enable only SQLite support
+- **`postgresql`**: Enable only PostgreSQL support
+
+**Examples:**
+```bash
+# Default (both SQLite and PostgreSQL)
+cargo add jankensqlhub
+
+# SQLite only
+cargo add jankensqlhub --features sqlite
+
+# PostgreSQL only
+cargo add jankensqlhub --features postgresql
+```
+
 **Links:**
 - [📦 Crates.io](https://crates.io/crates/jankensqlhub)
 - [📚 Documentation](https://docs.rs/jankensqlhub)

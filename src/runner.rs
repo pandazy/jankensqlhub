@@ -8,4 +8,5 @@
 // ============================================================================
 
 // Re-export SQLite functions (the main implementation)
+#[cfg(feature = "sqlite")]
 pub use crate::runner_sqlite::*;
