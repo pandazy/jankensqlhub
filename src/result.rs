@@ -30,15 +30,12 @@ pub struct QueryResult {
     pub data: Vec<serde_json::Value>,
 }
 
-/// Common metadata field names (short constants, ≥4 chars where applicable)
+/// Common metadata field names
 pub const M_EXPECTED: &str = "expected";
 pub const M_GOT: &str = "got";
 pub const M_QUERY_NAME: &str = "query_name";
 pub const M_PARAM_NAME: &str = "parameter_name";
 pub const M_CONFLICT_NAME: &str = "conflicting_name";
-pub const M_ERROR_KIND: &str = "error_kind";
-pub const M_LINE: &str = "line";
-pub const M_COLUMN: &str = "column";
 pub const M_ERROR: &str = "error";
 
 /// Error codes for JankenError variants

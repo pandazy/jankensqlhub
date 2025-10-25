@@ -29,11 +29,9 @@ pub use result::{
     JankenError,
     M_CONFLICT_NAME,
     M_ERROR,
-    M_ERROR_KIND,
     // Metadata field names
     M_EXPECTED,
     M_GOT,
-    M_LINE,
     M_PARAM_NAME,
     M_QUERY_NAME,
     QueryResult,
