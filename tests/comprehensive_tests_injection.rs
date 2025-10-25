@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -122,7 +124,9 @@ fn test_sql_injection_protection_list_parameters() {
     let params = serde_json::json!({"targets": ["1'; DROP TABLE source; --", 5]});
     let err = query_run_sqlite(&mut conn, &queries, "safe_int_list", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "integer at index 0");
             assert_eq!(got, "\"1'; DROP TABLE source; --\"");
         }

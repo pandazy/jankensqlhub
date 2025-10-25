@@ -11,6 +11,7 @@ To understand the repository's purpose, always check README.md first.
 
 To run comprehensive tests that include both SQLite and PostgreSQL testing:
 - `sh run-local-tests.sh` - Automatically sets up PostgreSQL environment and runs all tests
+- `run-local-tests.sh` is the test that can verify errors, don't depend on just `cargo tests`
 
 After running tests to verify functionality, always execute:
 - `cargo clippy --fix --allow-dirty` to fix any compiler warnings
@@ -67,8 +68,7 @@ After running tests to verify functionality, always execute:
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
-- Current task name: decouple_param_analysis_from_db
-- Progress file name: `_progress_<task_name>.md`
+- Progress file naming convention: `_progress_<task_name>.md`
 
 When a new task begins:
 1. Read the progress file to review completed work; if it does not exist, create one

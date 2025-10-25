@@ -99,8 +99,7 @@ fn execute_single_statement(
 
     // Now execute with the named parameter values
     let mut stmt = tx.prepare(&prepared.sql)?;
-    stmt.execute(&named_params[..])
-        .map_err(JankenError::Sqlite)?;
+    stmt.execute(&named_params[..])?;
     Ok(prepared.sql)
 }
 
@@ -132,8 +131,7 @@ fn execute_mutation_query(
             prepare_single_statement_sqlite(&query.sql, &query.parameters, request_params_obj)?;
         let named_params = prepared.as_named_params();
         let mut stmt = tx.prepare(&prepared.sql)?;
-        stmt.execute(&named_params[..])
-            .map_err(JankenError::Sqlite)?;
+        stmt.execute(&named_params[..])?;
         sql_statements.push(prepared.sql);
     }
 
@@ -209,23 +207,19 @@ pub fn query_run_sqlite(
     let query = queries
         .definitions
         .get(query_name)
-        .ok_or_else(|| JankenError::QueryNotFound(query_name.to_string()))?;
+        .ok_or_else(|| JankenError::new_query_not_found(query_name.to_string()))?;
 
-    let request_params_obj =
-        request_params
-            .as_object()
-            .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                expected: "object".to_string(),
-                got: "not object".to_string(),
-            })?;
+    let request_params_obj = request_params
+        .as_object()
+        .ok_or_else(|| JankenError::new_parameter_type_mismatch("object", "not object"))?;
 
-    let tx = conn.transaction().map_err(JankenError::Sqlite)?;
+    let tx = conn.transaction()?;
 
     // Handle all queries uniformly within transactions
     let query_result = execute_query_unified(query, request_params_obj, &tx)?;
 
     // Always commit the transaction (for both single and multi-statement queries)
-    tx.commit().map_err(JankenError::Sqlite)?;
+    tx.commit()?;
     Ok(query_result)
 }
 

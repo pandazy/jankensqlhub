@@ -68,7 +68,7 @@ fn prepare_single_statement_postgresql(
 }
 
 fn to_json_value<T: serde::Serialize>(value: T) -> Result<serde_json::Value> {
-    serde_json::to_value(value).map_err(JankenError::Json)
+    serde_json::to_value(value).map_err(JankenError::new_json)
 }
 
 /// Convert a PostgreSQL column value based on the given type
@@ -215,7 +215,7 @@ async fn execute_single_statement(
     transaction
         .execute(&positional_sql, &positional_params)
         .await
-        .map_err(JankenError::Postgres)?;
+        .map_err(JankenError::new_postgres)?;
 
     Ok(positional_sql)
 }
@@ -247,12 +247,12 @@ async fn execute_mutation_query(
         let prepared =
             prepare_single_statement_postgresql(&query.sql, &query.parameters, request_params_obj)?;
 
-        let (positional_sql, positional_params) = prepared.as_positional_params();
+        let (pos_sql, pos_params) = prepared.as_positional_params();
         transaction
-            .execute(&positional_sql, &positional_params)
+            .execute(&pos_sql, &pos_params)
             .await
-            .map_err(JankenError::Postgres)?;
-        sql_statements.push(positional_sql);
+            .map_err(JankenError::new_postgres)?;
+        sql_statements.push(pos_sql);
     }
 
     Ok(sql_statements)
@@ -274,7 +274,7 @@ pub async fn execute_query_unified(
         let rows = transaction
             .query(&positional_sql, &positional_params)
             .await
-            .map_err(JankenError::Postgres)?;
+            .map_err(JankenError::new_postgres)?;
 
         let result_data = map_rows_to_json_data(rows, &query.returns)?;
 
@@ -302,23 +302,25 @@ pub async fn query_run_postgresql(
     let query = queries
         .definitions
         .get(query_name)
-        .ok_or_else(|| JankenError::QueryNotFound(query_name.to_string()))?;
+        .ok_or_else(|| JankenError::new_query_not_found(query_name))?;
 
-    let request_params_obj =
-        request_params
-            .as_object()
-            .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                expected: "object".to_string(),
-                got: "not object".to_string(),
-            })?;
+    let request_params_obj = request_params
+        .as_object()
+        .ok_or_else(|| JankenError::new_parameter_type_mismatch("object", "not object"))?;
 
     // Start transaction - always use transactions for consistency and ACID properties
-    let mut transaction = client.transaction().await.map_err(JankenError::Postgres)?;
+    let mut transaction = client
+        .transaction()
+        .await
+        .map_err(JankenError::new_postgres)?;
 
     // Handle all queries uniformly within transactions
     let query_result = execute_query_unified(query, request_params_obj, &mut transaction).await?;
 
     // Always commit the transaction (for both single and multi-statement queries)
-    transaction.commit().await.map_err(JankenError::Postgres)?;
+    transaction
+        .commit()
+        .await
+        .map_err(JankenError::new_postgres)?;
     Ok(query_result)
 }

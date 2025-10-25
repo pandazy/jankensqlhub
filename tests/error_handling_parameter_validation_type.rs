@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -29,7 +31,9 @@ fn test_parameter_type_mismatch() {
     let params = serde_json::json!({"id": "not_int"}); // id should be integer but got string
     let err = query_run_sqlite(&mut conn, &queries, "test_select", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "integer");
             assert_eq!(got, "\"not_int\"");
         }
@@ -54,7 +58,9 @@ fn test_invalid_parameter_type_error() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "integer, string, float, boolean, table_name, list or blob"
@@ -101,7 +107,9 @@ fn test_sqlite_type_mismatch_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "object");
             assert_eq!(got, "not object");
         }
@@ -114,7 +122,9 @@ fn test_sqlite_type_mismatch_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "integer");
             assert_eq!(got, "\"not_int\"");
         }
@@ -127,7 +137,9 @@ fn test_sqlite_type_mismatch_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "string");
             assert_eq!(got, "123");
         }
@@ -140,7 +152,9 @@ fn test_sqlite_type_mismatch_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "float");
             assert_eq!(got, "\"not_a_number\"");
         }
@@ -153,7 +167,9 @@ fn test_sqlite_type_mismatch_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "boolean");
             assert_eq!(got, "[]");
         }
@@ -178,7 +194,9 @@ fn test_sqlite_type_mismatch_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "table_name");
             assert_eq!(got, "123");
         }

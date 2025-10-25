@@ -38,10 +38,10 @@ impl FromStr for ParameterType {
             "table_name" => Ok(ParameterType::TableName),
             "list" => Ok(ParameterType::List),
             "blob" => Ok(ParameterType::Blob),
-            _ => Err(JankenError::ParameterTypeMismatch {
-                expected: "integer, string, float, boolean, table_name, list or blob".to_string(),
-                got: s.to_string(),
-            }),
+            _ => Err(JankenError::new_parameter_type_mismatch(
+                "integer, string, float, boolean, table_name, list or blob",
+                s,
+            )),
         }
     }
 }
@@ -83,12 +83,12 @@ pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
     // Check for conflicts between parameter names
     for table_name in &table_names {
         if param_names.contains(table_name) || list_names.contains(table_name) {
-            return Err(JankenError::ParameterNameConflict(table_name.clone()));
+            return Err(JankenError::new_parameter_name_conflict(table_name.clone()));
         }
     }
     for list_name in &list_names {
         if param_names.contains(list_name) {
-            return Err(JankenError::ParameterNameConflict(list_name.clone()));
+            return Err(JankenError::new_parameter_name_conflict(list_name.clone()));
         }
     }
 
@@ -217,63 +217,50 @@ pub fn json_value_to_parameter_value(
 ) -> Result<ParameterValue> {
     match param_type {
         ParameterType::String => {
-            let s = value
-                .as_str()
-                .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                    expected: "string".to_string(),
-                    got: value.to_string(),
-                })?;
+            let s = value.as_str().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch("string", value.to_string())
+            })?;
             Ok(ParameterValue::String(s.to_string()))
         }
         ParameterType::Integer => {
-            let i = value
-                .as_i64()
-                .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                    expected: "integer".to_string(),
-                    got: value.to_string(),
-                })?;
+            let i = value.as_i64().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch("integer", value.to_string())
+            })?;
             Ok(ParameterValue::Integer(i))
         }
         ParameterType::Float => {
-            let f = value
-                .as_f64()
-                .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                    expected: "float".to_string(),
-                    got: value.to_string(),
-                })?;
+            let f = value.as_f64().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch("float", value.to_string())
+            })?;
             Ok(ParameterValue::Float(f))
         }
         ParameterType::Boolean => {
-            let b = value
-                .as_bool()
-                .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                    expected: "boolean".to_string(),
-                    got: value.to_string(),
-                })?;
+            let b = value.as_bool().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch("boolean", value.to_string())
+            })?;
             Ok(ParameterValue::Boolean(b))
         }
         ParameterType::TableName => {
-            let s = value
-                .as_str()
-                .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                    expected: "string (table name)".to_string(),
-                    got: value.to_string(),
-                })?;
+            let s = value.as_str().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch("string (table name)", value.to_string())
+            })?;
             Ok(ParameterValue::String(s.to_string()))
         }
         ParameterType::List => {
             // List parameters are expanded separately, so we shouldn't convert them here
-            Err(JankenError::ParameterTypeMismatch {
-                expected: "non-list parameter".to_string(),
-                got: "list parameter (should be expanded)".to_string(),
-            })
+            Err(JankenError::new_parameter_type_mismatch(
+                "non-list parameter",
+                "list parameter (should be expanded)",
+            ))
         }
         ParameterType::Blob => {
             let bytes = value
                 .as_array()
-                .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                    expected: "array of byte values".to_string(),
-                    got: value.to_string(),
+                .ok_or_else(|| {
+                    JankenError::new_parameter_type_mismatch(
+                        "array of byte values",
+                        value.to_string(),
+                    )
                 })?
                 .iter()
                 .map(|v| v.as_u64().unwrap_or(0) as u8)
@@ -294,7 +281,7 @@ pub fn prepare_parameter_statement_generic(
     for param_def in all_parameters {
         let value = request_params_obj
             .get(&param_def.name)
-            .ok_or_else(|| JankenError::ParameterNotProvided(param_def.name.clone()))?;
+            .ok_or_else(|| JankenError::new_parameter_not_provided(param_def.name.clone()))?;
 
         // Validate parameter constraints
         param_def.constraints.validate(
@@ -313,12 +300,12 @@ pub fn prepare_parameter_statement_generic(
     for param_name in &statement_param_names {
         let param_value = request_params_obj
             .get(param_name)
-            .ok_or_else(|| JankenError::ParameterNotProvided(param_name.clone()))?;
+            .ok_or_else(|| JankenError::new_parameter_not_provided(param_name.clone()))?;
 
         let param_def = all_parameters
             .iter()
             .find(|p| p.name == *param_name)
-            .ok_or_else(|| JankenError::ParameterNotProvided(param_name.clone()))?;
+            .ok_or_else(|| JankenError::new_parameter_not_provided(param_name.clone()))?;
 
         let generic_value = json_value_to_parameter_value(param_value, &param_def.param_type)?;
         parameters.push((param_name.clone(), generic_value));
@@ -355,10 +342,10 @@ pub fn prepare_parameter_statement_generic(
                 let list_array = list_value.as_array().unwrap();
 
                 if list_array.is_empty() {
-                    return Err(JankenError::ParameterTypeMismatch {
-                        expected: "non-empty list".to_string(),
-                        got: "empty array".to_string(),
-                    });
+                    return Err(JankenError::new_parameter_type_mismatch(
+                        "non-empty list",
+                        "empty array",
+                    ));
                 }
 
                 // Create positional placeholders and values
@@ -491,9 +478,16 @@ mod tests {
             result,
             Err(JankenError::ParameterTypeMismatch { .. })
         ));
-        if let Err(JankenError::ParameterTypeMismatch { expected, got }) = result {
-            assert_eq!(expected, "non-list parameter");
-            assert_eq!(got, "list parameter (should be expanded)");
+        match result {
+            Err(JankenError::ParameterTypeMismatch { data }) => {
+                let metadata: serde_json::Value =
+                    serde_json::from_str(&data.metadata.unwrap_or("{}".to_string())).unwrap();
+                let expected = metadata.get("expected").unwrap().as_str().unwrap();
+                let got = metadata.get("got").unwrap().as_str().unwrap();
+                assert_eq!(expected, "non-list parameter");
+                assert_eq!(got, "list parameter (should be expanded)");
+            }
+            _ => panic!("Expected ParameterTypeMismatch error"),
         }
     }
 
@@ -703,7 +697,12 @@ mod tests {
         let request_params = json!({"name": "Alice"}).as_object().unwrap().clone(); // Missing 'id'
 
         let result = prepare_parameter_statement_generic(sql, &parameters, &request_params);
-        assert!(matches!(result, Err(JankenError::ParameterNotProvided(param)) if param == "id"));
+        assert!(
+            matches!(result, Err(JankenError::ParameterNotProvided { data }) if {
+                let metadata: serde_json::Value = serde_json::from_str(&data.metadata.clone().unwrap_or("{}".to_string())).unwrap();
+                metadata.get("parameter_name").unwrap().as_str().unwrap() == "id"
+            })
+        );
     }
 
     #[test]

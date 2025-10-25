@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -17,7 +19,7 @@ fn test_io_error() {
     let result = QueryDefinitions::from_file("non_existent_file.json");
 
     match result {
-        Err(JankenError::Io(_)) => {} // Should be Io error
+        Err(JankenError::Io { .. }) => {} // Should be Io error
         _ => panic!("Expected Io error, got: {result:?}"),
     }
 }
@@ -41,7 +43,7 @@ fn test_sqlite_sql_syntax_error() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::Sqlite(_) => {} // SQLite error as expected
+        JankenError::Sqlite { .. } => {} // SQLite error as expected
         _ => panic!("Expected Sqlite error, got: {err:?}"),
     }
 }
@@ -81,8 +83,9 @@ fn test_regex_error() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, .. } => {
+        JankenError::ParameterTypeMismatch { data } => {
             // Should fail with regex validation error
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert!(expected.contains("regex"));
         }
         _ => panic!("Expected ParameterTypeMismatch for invalid regex, got: {err:?}"),
@@ -145,7 +148,9 @@ fn test_table_name_parameter_security_and_validation() {
         let err =
             query_run_sqlite(&mut conn, &queries, "table_injection_test", &params).unwrap_err();
         match err {
-            JankenError::ParameterTypeMismatch { expected, got } => {
+            JankenError::ParameterTypeMismatch { data } => {
+                let expected = error_meta(&data, M_EXPECTED).unwrap();
+                let got = error_meta(&data, M_GOT).unwrap();
                 assert_eq!(
                     expected, expected_type,
                     "Expected type mismatch for {expected_got}"
@@ -231,7 +236,9 @@ fn test_table_name_validation_error() {
         let params = serde_json::json!({"table_name": table_name});
         let err = query_run_sqlite(&mut conn, &queries, "table_query", &params).unwrap_err();
         match err {
-            JankenError::ParameterTypeMismatch { expected, got } => {
+            JankenError::ParameterTypeMismatch { data } => {
+                let expected = error_meta(&data, M_EXPECTED).unwrap();
+                let got = error_meta(&data, M_GOT).unwrap();
                 assert_eq!(
                     expected,
                     "valid table name (alphanumeric and underscores only)"

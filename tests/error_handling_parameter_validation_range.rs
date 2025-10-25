@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -38,7 +40,9 @@ fn test_parameter_validation_range() {
     let params = serde_json::json!({"id": 0});
     let err = query_run_sqlite(&mut conn, &queries, "select_with_range", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("between 1 and 100"));
             assert_eq!(got, "0");
         }
@@ -72,7 +76,9 @@ fn test_parameter_validation_range_non_numeric() {
     for (params, expected_got) in cases {
         let err = query_run_sqlite(&mut conn, &queries, "select_with_range", &params).unwrap_err();
         match err {
-            JankenError::ParameterTypeMismatch { expected, got } => {
+            JankenError::ParameterTypeMismatch { data } => {
+                let expected = error_meta(&data, M_EXPECTED).unwrap();
+                let got = error_meta(&data, M_GOT).unwrap();
                 assert_eq!(expected, "integer");
                 assert_eq!(got, expected_got);
             }
@@ -113,7 +119,9 @@ fn test_parameter_validation_range_wrong_type() {
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_range_string", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "numeric type or blob");
             assert_eq!(got, "string");
         }
@@ -123,7 +131,9 @@ fn test_parameter_validation_range_wrong_type() {
     let params = serde_json::json!({"id": true});
     let err = query_run_sqlite(&mut conn, &queries, "select_with_range_bool", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "numeric type or blob");
             assert_eq!(got, "boolean");
         }

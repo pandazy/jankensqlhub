@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -50,7 +52,9 @@ fn test_list_parameter_constraint_validation_errors() {
     let params = serde_json::json!({"ints": [1, "invalid_string", 3.0, true]});
     let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "integer at index 1");
             assert_eq!(got, "\"invalid_string\"");
         }
@@ -61,7 +65,9 @@ fn test_list_parameter_constraint_validation_errors() {
     let params = serde_json::json!({"names": ["Alice", "lowercase_name", "123invalid"]});
     let err = query_run_sqlite(&mut conn, &queries, "list_string_pattern", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("string matching pattern"));
             assert_eq!(got, "lowercase_name");
         }
@@ -72,7 +78,9 @@ fn test_list_parameter_constraint_validation_errors() {
     let params = serde_json::json!({"scores": [85.5, -5.0, 150.5, 92.0]});
     let err = query_run_sqlite(&mut conn, &queries, "list_float_range", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("value between 0 and 100"));
             assert_eq!(got, "-5");
         }
@@ -83,7 +91,9 @@ fn test_list_parameter_constraint_validation_errors() {
     let params = serde_json::json!({"statuses": ["active", "unknown_status", "pending"]});
     let err = query_run_sqlite(&mut conn, &queries, "list_enum", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("active"));
             assert!(expected.contains("inactive"));
             assert!(expected.contains("pending"));
@@ -96,7 +106,9 @@ fn test_list_parameter_constraint_validation_errors() {
     let params = serde_json::json!({"ints": []});
     let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "non-empty list");
             assert_eq!(got, "empty array");
         }
@@ -107,7 +119,9 @@ fn test_list_parameter_constraint_validation_errors() {
     let params = serde_json::json!({"ints": "not_an_array"});
     let err = query_run_sqlite(&mut conn, &queries, "list_int_constraints", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "list");
             assert_eq!(got, "\"not_an_array\"");
         }

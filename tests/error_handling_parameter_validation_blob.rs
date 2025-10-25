@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -45,7 +47,9 @@ fn test_blob_parameter_validation() {
     let params = serde_json::json!({"id": 2, "data": empty_blob});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("blob size between 1 and 100 bytes"));
             assert_eq!(got, "0 bytes");
         }
@@ -59,7 +63,9 @@ fn test_blob_parameter_validation() {
     let params = serde_json::json!({"id": 3, "data": large_blob_json});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("blob size between 1 and 100 bytes"));
             assert_eq!(got, "101 bytes");
         }
@@ -70,7 +76,9 @@ fn test_blob_parameter_validation() {
     let params = serde_json::json!({"id": 4, "data": "not_an_array"});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "blob");
             assert_eq!(got, "\"not_an_array\"");
         }
@@ -82,7 +90,9 @@ fn test_blob_parameter_validation() {
     let params = serde_json::json!({"id": 5, "data": invalid_bytes});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("byte values (0-255) at index 0"));
             assert_eq!(got, "300");
         }
@@ -94,7 +104,9 @@ fn test_blob_parameter_validation() {
     let params = serde_json::json!({"id": 6, "data": invalid_bytes});
     let err = query_run_sqlite(&mut conn, &queries, "insert_blob", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("byte values (0-255) at index 0"));
             assert_eq!(got, "\"not\"");
         }

@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -57,7 +59,9 @@ fn test_parameter_validation_pattern() {
     let params = serde_json::json!({"email": "invalid-email"});
     let err = query_run_sqlite(&mut conn, &queries, "email_query", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("string matching pattern"));
             assert_eq!(got, "invalid-email");
         }
@@ -67,7 +71,9 @@ fn test_parameter_validation_pattern() {
     let params = serde_json::json!({"phone": "invalid-phone"});
     let err = query_run_sqlite(&mut conn, &queries, "phone_query", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("string matching pattern"));
             assert_eq!(got, "invalid-phone");
         }
@@ -109,7 +115,9 @@ fn test_parameter_validation_pattern_non_string() {
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_pattern_int", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "string");
             assert_eq!(got, "123");
         }
@@ -123,7 +131,9 @@ fn test_parameter_validation_pattern_non_string() {
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_pattern_bool", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "string");
             assert_eq!(got, "true");
         }
@@ -198,7 +208,9 @@ fn test_parameter_validation_pattern_table_name() {
         let err =
             query_run_sqlite(&mut conn, &queries, "table_pattern_query", &params).unwrap_err();
         match err {
-            JankenError::ParameterTypeMismatch { expected, got } => {
+            JankenError::ParameterTypeMismatch { data } => {
+                let expected = error_meta(&data, M_EXPECTED).unwrap();
+                let got = error_meta(&data, M_GOT).unwrap();
                 assert!(
                     expected.contains("string matching pattern"),
                     "Expected pattern validation error"

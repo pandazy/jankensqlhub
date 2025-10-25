@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -80,7 +82,9 @@ fn test_enumif_constraint_multiple_conditions_alphabetical() {
     let params = serde_json::json!({"priority": "high", "category": "work", "tags": "immediate"}); // "immediate" from priority but "meeting" from category
     let err = query_run_sqlite(&mut conn, &queries, "insert_classified", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             // Should show category conditions (processed first alphabetically)
             assert!(expected.contains("urgent"));
             assert!(expected.contains("meeting"));
@@ -99,7 +103,9 @@ fn test_enumif_constraint_multiple_conditions_alphabetical() {
     let params = serde_json::json!({"priority": "low", "category": "personal", "tags": "optional"}); // "optional" from priority but not in personal category
     let err = query_run_sqlite(&mut conn, &queries, "insert_classified", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             // Should show personal category conditions
             assert!(expected.contains("family"));
             assert!(expected.contains("health"));

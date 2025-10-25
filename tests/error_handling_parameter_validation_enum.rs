@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -58,7 +60,9 @@ fn test_parameter_validation_enum() {
     let err =
         query_run_sqlite(&mut conn, &queries, "select_with_enum_string", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("active"));
             assert!(expected.contains("inactive"));
             assert!(expected.contains("pending"));
@@ -75,7 +79,9 @@ fn test_parameter_validation_enum() {
     let params = serde_json::json!({"level": 10}); // Not in enum [1,2,3,4,5]
     let err = query_run_sqlite(&mut conn, &queries, "select_with_enum_int", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("1"));
             assert!(expected.contains("2"));
             assert!(expected.contains("3"));
@@ -108,7 +114,9 @@ fn test_parameter_validation_enum() {
     let err =
         query_run_sqlite(&mut conn2, &queries, "select_with_enum_table", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("users"));
             assert!(expected.contains("products"));
             assert!(expected.contains("orders"));

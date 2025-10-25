@@ -275,6 +275,70 @@ The `enumif` constraint allows parameter validation based on the values of other
 }
 ```
 
+## 🛡️ Flexible Error Handling
+
+**Janken SQL Hub** provides structured error handling with unique error codes and JSON metadata for better debugging and customization. Each error includes:
+
+- **Unique Error Code**: u16 identifier for programmatic error identification
+- **Structured Metadata**: JSON string containing relevant contextual error details
+- **Helper Functions**: Extract metadata fields without parsing JSON
+- **Error Information**: Look up comprehensive error descriptions by code
+
+### Programmatic Error Handling
+```rust
+use jankensqlhub::{JankenError, error_meta, get_error_data, get_error_info, M_EXPECTED, M_GOT, M_PARAM_NAME, M_QUERY_NAME};
+
+// Extract error data from any JankenError variant
+let data = get_error_data(&error);
+let code = data.code;
+let metadata = &data.metadata;
+
+// Look up comprehensive error information
+if let Some(info) = get_error_info(code) {
+    eprintln!("{} ({}) - {}", info.name, code, info.description);
+}
+
+// Extract specific metadata fields using constants
+match &error {
+    JankenError::ParameterTypeMismatch { .. } => {
+        let expected = error_meta(data, M_EXPECTED)?;
+        let got = error_meta(data, M_GOT)?;
+        eprintln!("Type mismatch: expected {}, got {}", expected, got);
+    }
+    JankenError::ParameterNotProvided { .. } => {
+        let param_name = error_meta(data, M_PARAM_NAME)?;
+        eprintln!("Missing required parameter: {}", param_name);
+    }
+    JankenError::QueryNotFound { .. } => {
+        let query_name = error_meta(data, M_QUERY_NAME)?;
+        eprintln!("Query not found: {}", query_name);
+    }
+    _ => {
+        eprintln!("Error {} occurred", code);
+    }
+}
+```
+
+### Error Code Reference
+| Code | Error Type | Category | Description |
+|------|------------|----------|-------------|
+| 1000 | IO_ERROR | System | Input/output operation failed |
+| 1010 | JSON_ERROR | Serialization | JSON parsing or serialization failed |
+| 1020 | SQLITE_ERROR | Database | SQLite database operation failed |
+| 1030 | POSTGRES_ERROR | Database | PostgreSQL database operation failed |
+| 1040 | REGEX_ERROR | Pattern | Regular expression compilation or matching failed |
+| 2000 | QUERY_NOT_FOUND | Query | Requested query definition was not found |
+| 2010 | PARAMETER_NOT_PROVIDED | Parameter | Required parameter was not provided |
+| 2020 | PARAMETER_TYPE_MISMATCH | Parameter | Parameter value does not match expected type |
+| 2030 | PARAMETER_NAME_CONFLICT | Parameter | Parameter name conflicts with table name |
+
+### Example Error Metadata
+- **Parameter Type Mismatch**: `{"expected": "integer", "got": "\"not_int\""}`
+- **Query Not Found**: `{"query_name": "find_user_by_id"}`
+- **Parameter Not Provided**: `{"parameter_name": "user_id"}`
+- **Parameter Name Conflict**: `{"conflicting_name": "users"}`
+- **JSON Error**: `{"line": 5, "column": 12}`
+
 ## ⚡ Performance Characteristics
 
 - **Regex Compilation**: One-time lazy static initialization

@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -39,7 +41,9 @@ fn test_enumif_constraint_no_matching_condition() {
     let params = serde_json::json!({"media_type": "movie", "source": "director"}); // "movie" not in enumif conditions
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "conditional parameter value that matches a defined condition"
@@ -58,7 +62,9 @@ fn test_enumif_constraint_no_matching_condition() {
     let params = serde_json::json!({"media_type": "book", "source": "author"}); // "book" not in enumif conditions
     let err = query_run_sqlite(&mut conn, &queries, "conditional_enum_query", &params).unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "conditional parameter value that matches a defined condition"

@@ -1,4 +1,6 @@
-use jankensqlhub::{JankenError, QueryDefinitions, query_run_sqlite};
+use jankensqlhub::{
+    JankenError, M_EXPECTED, M_GOT, M_QUERY_NAME, QueryDefinitions, error_meta, query_run_sqlite,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -36,7 +38,8 @@ fn test_query_not_found() {
     let err = query_run_sqlite(&mut conn, &queries, "non_existent_query", &params).unwrap_err();
 
     match err {
-        JankenError::QueryNotFound(name) => {
+        JankenError::QueryNotFound { data } => {
+            let name = error_meta(&data, M_QUERY_NAME).unwrap();
             assert_eq!(name, "non_existent_query");
         }
         _ => panic!("Expected QueryNotFound error, got: {err:?}"),
@@ -102,7 +105,9 @@ fn test_from_json_invalid_returns_field() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "array of strings");
             assert!(got.contains("not an array"));
         }
@@ -122,7 +127,9 @@ fn test_from_json_non_object_input() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "object");
             assert_eq!(got, "\"not an object\"");
         }
@@ -136,7 +143,8 @@ fn test_from_json_non_object_input() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(expected, "object");
         }
         _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
@@ -149,7 +157,8 @@ fn test_from_json_non_object_input() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(expected, "object");
         }
         _ => panic!("Expected ParameterTypeMismatch, got: {err:?}"),
@@ -178,7 +187,9 @@ fn test_from_json_missing_query_field() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "required 'query' field with string value");
             assert_eq!(got, "missing_query: missing 'query' field");
         }
@@ -200,7 +211,9 @@ fn test_from_json_query_definition_not_object() {
 
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "object");
             assert_eq!(got, "invalid_query_def: \"not an object\"");
         }
@@ -229,7 +242,8 @@ fn test_parameter_name_conflict_error() {
 
         let err = result.unwrap_err();
         match err {
-            JankenError::ParameterNameConflict(name) => {
+            JankenError::ParameterNameConflict { data } => {
+                let name = error_meta(&data, "conflicting_name").unwrap();
                 assert_eq!(
                     name, expected_conflict_name,
                     "Conflict name mismatch for SQL: {sql}"
@@ -259,7 +273,9 @@ fn test_invalid_itemtype_definition_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "item_type for list items cannot be TableName or List"
@@ -283,7 +299,9 @@ fn test_invalid_itemtype_definition_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "item_type for list items cannot be TableName or List"
@@ -307,7 +325,9 @@ fn test_invalid_itemtype_definition_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert!(expected.contains("integer, string, float, boolean, table_name, list or blob"));
             assert_eq!(got, "invalid_type_not_supported");
         }
@@ -334,7 +354,9 @@ fn test_parameter_validation_range_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "array with exactly 2 numbers for range constraint"
@@ -358,7 +380,9 @@ fn test_parameter_validation_range_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "array with exactly 2 numbers for range constraint"
@@ -382,7 +406,9 @@ fn test_parameter_validation_range_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(
                 expected,
                 "array with exactly 2 numbers for range constraint"
@@ -406,7 +432,9 @@ fn test_parameter_validation_range_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "number");
             assert_eq!(got, "\"not_a_number\" at index 0");
         }
@@ -429,7 +457,9 @@ fn test_parameter_validation_range_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
+            let got = error_meta(&data, M_GOT).unwrap();
             assert_eq!(expected, "number");
             assert_eq!(got, "\"not_a_number\" at index 1");
         }

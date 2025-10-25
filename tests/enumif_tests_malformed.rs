@@ -1,4 +1,4 @@
-use jankensqlhub::{JankenError, QueryDefinitions};
+use jankensqlhub::{JankenError, M_EXPECTED, QueryDefinitions, error_meta};
 
 #[test]
 fn test_enumif_constraint_malformed_definition_errors() {
@@ -23,7 +23,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "object mapping condition values to allowed arrays"
@@ -52,7 +53,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(expected, "array of allowed values");
         }
         _ => panic!("Expected ParameterTypeMismatch for non-array enumif values, got: {err:?}"),
@@ -74,7 +76,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "object mapping conditional parameters to conditions"
@@ -99,7 +102,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "object mapping conditional parameters to conditions"
@@ -124,7 +128,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "object mapping conditional parameters to conditions"
@@ -149,7 +154,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "object mapping conditional parameters to conditions"
@@ -174,7 +180,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "object mapping conditional parameters to conditions"
@@ -203,7 +210,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "enumif allowed values to be primitives (string, number, or boolean)"
@@ -232,7 +240,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "enumif allowed values to be primitives (string, number, or boolean)"
@@ -261,7 +270,8 @@ fn test_enumif_constraint_malformed_definition_errors() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     match err {
-        JankenError::ParameterTypeMismatch { expected, got: _ } => {
+        JankenError::ParameterTypeMismatch { data } => {
+            let expected = error_meta(&data, M_EXPECTED).unwrap();
             assert_eq!(
                 expected,
                 "enumif allowed values to be primitives (string, number, or boolean)"

@@ -41,13 +41,10 @@ impl QueryDef {
     }
 
     fn check_transaction_keywords(sql: &str) -> Result<()> {
-        let got = "Query contains BEGIN, COMMIT, ROLLBACK, START TRANSACTION, or END TRANSACTION"
-            .to_string();
+        let got = "Query contains BEGIN, COMMIT, ROLLBACK, START TRANSACTION, or END TRANSACTION";
         if parameters::contains_transaction_keywords(sql) {
-            Err(JankenError::ParameterTypeMismatch {
-                expected: "SQL without explicit transaction keywords".to_string(),
-                got,
-            })
+            let expected = "SQL without explicit transaction keywords";
+            Err(JankenError::new_parameter_type_mismatch(expected, got))
         } else {
             Ok(())
         }
@@ -149,27 +146,22 @@ impl QueryDefinitions {
         let json_map = match json.as_object() {
             Some(map) => map,
             None => {
-                return Err(JankenError::ParameterTypeMismatch {
-                    expected: "object".to_string(),
-                    got: json.to_string(),
-                });
+                let err = JankenError::new_parameter_type_mismatch("object", json.to_string());
+                return Err(err);
             }
         };
 
         let mut definitions = HashMap::new();
         for (name, value) in json_map {
-            let map = value
-                .as_object()
-                .ok_or_else(|| JankenError::ParameterTypeMismatch {
-                    expected: "object".to_string(),
-                    got: format!("{name}: {value}"),
-                })?;
+            let map = value.as_object().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch("object", format!("{name}: {value}"))
+            })?;
 
             let sql = map.get("query").and_then(|q| q.as_str()).ok_or_else(|| {
-                JankenError::ParameterTypeMismatch {
-                    expected: "required 'query' field with string value".to_string(),
-                    got: format!("{name}: missing 'query' field"),
-                }
+                JankenError::new_parameter_type_mismatch(
+                    "required 'query' field with string value",
+                    format!("{name}: missing 'query' field"),
+                )
             })?;
 
             let args = map.get("args").and_then(|a| a.as_object());
@@ -191,10 +183,10 @@ impl QueryDefinitions {
                         .collect();
                     query_def.returns = unique_returns;
                 } else {
-                    return Err(JankenError::ParameterTypeMismatch {
-                        expected: "array of strings".to_string(),
-                        got: returns_val.to_string(),
-                    });
+                    return Err(JankenError::new_parameter_type_mismatch(
+                        "array of strings",
+                        returns_val.to_string(),
+                    ));
                 }
             } else {
                 // No returns specified - empty array
