@@ -9,6 +9,8 @@ pub enum JankenError {
     Json(#[from] serde_json::Error),
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("PostgreSQL error: {0}")]
+    Postgres(#[from] tokio_postgres::Error),
     #[error("Query not found: {0}")]
     QueryNotFound(String),
     #[error("Parameter not provided: {0}")]

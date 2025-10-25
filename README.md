@@ -1,6 +1,6 @@
 # Janken SQL Hub - Database Query Management Library
 
-A high-performance, modular Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (currently SQLite, PostgreSQL planned).
+A high-performance, modular Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (SQLite and PostgreSQL).
 
 ## 🎯 Overview
 
@@ -42,7 +42,7 @@ SELECT * FROM users WHERE name='@literal_text'
 **Janken SQL Hub** serves as a **server-side query adapter**, bridging the gap between web API endpoints and database operations:
 
 - **QueryDef**: Pre-defined, validated SQL queries stored on the server
-- **query_run()**: Web request handler that maps JSON parameters to prepared statements
+- **query_run_sqlite() / query_run_postgresql()**: Database-specific query runners that map JSON parameters to prepared statements
 - **Security First**: Query templates prevent SQL injection while retaining SQL's efficiency
 - **No ORM Abstraction**: Direct SQL usage avoids inefficient query builders and ORMs
 
@@ -53,8 +53,8 @@ SELECT * FROM users WHERE name='@literal_text'
 // 3. Parameters are validated and injected into prepared statement
 // 4. Result returned as JSON
 
-let params = serde_json::json!({"user_id": 123, "status": "active"});
-let result = conn.query_run(&queries, "find_user", &params)?;
+let params = serde_json::json!({"user_id": 123});
+let result = query_run_sqlite(&mut conn, &queries, "find_user", &params)?;
 ```
 
 ## 🚀 Usage Guide
@@ -294,15 +294,38 @@ The `enumif` constraint allows parameter validation based on the values of other
 ## 📈 Roadmap
 
 ### Planned Enhancements
-- [ ] PostgreSQL native connection implementation
+- [ ] TBD
 
 ### Database Backend Priorities
 1. ✅ SQLite (complete)
-2.  PostgreSQL (planned implementation)
+2. ✅ PostgreSQL (complete)
 
-## 🐘 PostgreSQL Testing
+## 🐘 PostgreSQL Support
 
-**JankenSQLHub** supports PostgreSQL testing through experimental modules for future multi-backend support development. See the [operational guide](op.md) for detailed setup instructions for contributors.
+**JankenSQLHub** provides production-ready PostgreSQL support alongside SQLite. Both backends share the same API and parameter syntax, ensuring consistent behavior across database systems.
+
+```rust
+use jankensqlhub::{QueryDefinitions, query_run_postgresql};
+use tokio_postgres::NoTls;
+
+// Setup PostgreSQL connection
+let (client, connection) = tokio_postgres::connect(&connection_string, NoTls).await?;
+tokio::spawn(async move { if let Err(e) = connection.await { eprintln!("connection error: {}", e); } });
+
+// Execute queries with PostgreSQL
+let params = serde_json::json!({"user_id": 42});
+let result = query_run_postgresql(&mut client, &queries, "get_user", &params).await?;
+```
+
+### Key Features
+- **Async Execution**: Leverages tokio-postgres for high-performance async operations
+- **ACID Transactions**: All query execution wrapped in transactions with automatic rollback on failure
+- **Prepared Statements**: Automatic conversion to PostgreSQL `$1, $2, ...` parameter format
+- **Type Safety**: Full type mapping between JSON and PostgreSQL data types including JSON/JSONB columns
+- **JSON/JSONB Support**: Direct query of PostgreSQL JSON and JSONB column types with automatic serde_json conversion
+- **Integration Tests**: Comprehensive test suite covering all features
+
+See the [operational guide](op.md) for testing setup and development instructions.
 
 ## 📦 Installation & Links
 
