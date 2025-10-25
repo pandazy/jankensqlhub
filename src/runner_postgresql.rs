@@ -67,9 +67,7 @@ fn prepare_single_statement_postgresql(
 }
 
 fn to_json_value<T: serde::Serialize>(value: T) -> anyhow::Result<serde_json::Value> {
-    serde_json::to_value(value)
-        .map_err(JankenError::new_json)
-        .map_err(Into::into)
+    serde_json::to_value(value).map_err(Into::into)
 }
 
 /// Convert a PostgreSQL column value based on the given type

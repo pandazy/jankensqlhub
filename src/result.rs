@@ -10,18 +10,6 @@ pub struct ErrorData {
 /// Main error type for the Janken SQL library
 #[derive(Error, Debug)]
 pub enum JankenError {
-    #[error("IO error")]
-    Io {
-        #[source]
-        source: std::io::Error,
-        data: ErrorData,
-    },
-    #[error("JSON error")]
-    Json {
-        #[source]
-        source: serde_json::Error,
-        data: ErrorData,
-    },
     #[error("Query not found")]
     QueryNotFound { data: ErrorData },
     #[error("Parameter not provided")]
@@ -30,12 +18,6 @@ pub enum JankenError {
     ParameterTypeMismatch { data: ErrorData },
     #[error("Parameter name conflict")]
     ParameterNameConflict { data: ErrorData },
-    #[error("Regex error")]
-    Regex {
-        #[source]
-        source: regex::Error,
-        data: ErrorData,
-    },
 }
 
 /// Type alias for Results using JankenError
@@ -60,50 +42,13 @@ pub const M_COLUMN: &str = "column";
 pub const M_ERROR: &str = "error";
 
 /// Error codes for JankenError variants
-pub const ERR_CODE_IO: u16 = 1000;
-pub const ERR_CODE_JSON: u16 = 1010;
 pub const ERR_CODE_QUERY_NOT_FOUND: u16 = 2000;
 pub const ERR_CODE_PARAMETER_NOT_PROVIDED: u16 = 2010;
 pub const ERR_CODE_PARAMETER_TYPE_MISMATCH: u16 = 2020;
 pub const ERR_CODE_PARAMETER_NAME_CONFLICT: u16 = 2030;
-pub const ERR_CODE_REGEX: u16 = 1040;
 
 /// Implementation for creating structured errors
 impl JankenError {
-    pub fn new_io(error: std::io::Error) -> Self {
-        let error_kind = format!("{:?}", error.kind());
-        JankenError::Io {
-            source: error,
-            data: ErrorData {
-                code: ERR_CODE_IO,
-                metadata: Some(
-                    serde_json::json!({
-                        M_ERROR_KIND: error_kind
-                    })
-                    .to_string(),
-                ),
-            },
-        }
-    }
-
-    pub fn new_json(error: serde_json::Error) -> Self {
-        let line = error.line();
-        let column = error.column();
-        JankenError::Json {
-            source: error,
-            data: ErrorData {
-                code: ERR_CODE_JSON,
-                metadata: Some(
-                    serde_json::json!({
-                        M_LINE: line,
-                        M_COLUMN: column
-                    })
-                    .to_string(),
-                ),
-            },
-        }
-    }
-
     pub fn new_query_not_found(query_name: impl Into<String>) -> Self {
         let query_name = query_name.into();
         JankenError::QueryNotFound {
@@ -168,35 +113,6 @@ impl JankenError {
             },
         }
     }
-
-    pub fn new_regex(error: regex::Error) -> Self {
-        JankenError::Regex {
-            source: error,
-            data: ErrorData {
-                code: ERR_CODE_REGEX,
-                metadata: Some(serde_json::json!({}).to_string()),
-            },
-        }
-    }
-}
-
-// Conversion implementations for external errors
-impl From<std::io::Error> for JankenError {
-    fn from(error: std::io::Error) -> Self {
-        JankenError::new_io(error)
-    }
-}
-
-impl From<serde_json::Error> for JankenError {
-    fn from(error: serde_json::Error) -> Self {
-        JankenError::new_json(error)
-    }
-}
-
-impl From<regex::Error> for JankenError {
-    fn from(error: regex::Error) -> Self {
-        JankenError::new_regex(error)
-    }
 }
 
 /// Error code mappings and descriptions
@@ -209,18 +125,6 @@ pub struct ErrorInfo {
 }
 
 pub const ERROR_MAPPINGS: &[ErrorInfo] = &[
-    ErrorInfo {
-        code: ERR_CODE_IO,
-        name: "IO_ERROR",
-        category: "System",
-        description: "Input/output operation failed",
-    },
-    ErrorInfo {
-        code: ERR_CODE_JSON,
-        name: "JSON_ERROR",
-        category: "Serialization",
-        description: "JSON parsing or serialization failed",
-    },
     ErrorInfo {
         code: ERR_CODE_QUERY_NOT_FOUND,
         name: "QUERY_NOT_FOUND",
@@ -245,24 +149,15 @@ pub const ERROR_MAPPINGS: &[ErrorInfo] = &[
         category: "Parameter",
         description: "Parameter name conflicts with table name",
     },
-    ErrorInfo {
-        code: ERR_CODE_REGEX,
-        name: "REGEX_ERROR",
-        category: "Pattern",
-        description: "Regular expression compilation or matching failed",
-    },
 ];
 
 /// Helper function to get error data from any JankenError variant
 pub fn get_error_data(err: &JankenError) -> &ErrorData {
     match err {
-        JankenError::Io { data, .. } => data,
-        JankenError::Json { data, .. } => data,
         JankenError::QueryNotFound { data } => data,
         JankenError::ParameterNotProvided { data } => data,
         JankenError::ParameterTypeMismatch { data } => data,
         JankenError::ParameterNameConflict { data } => data,
-        JankenError::Regex { data, .. } => data,
     }
 }
 

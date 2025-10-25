@@ -15,12 +15,19 @@ fn setup_db() -> Connection {
 
 #[test]
 fn test_io_error() {
-    // Test Io error for invalid file path
+    // Test IO error for invalid file path
     let result = QueryDefinitions::from_file("non_existent_file.json");
 
     match result {
-        Err(JankenError::Io { .. }) => {} // Should be Io error
-        _ => panic!("Expected Io error, got: {result:?}"),
+        Err(err) => {
+            // IO errors are now returned as native std::io::Error wrapped in anyhow
+            if err.downcast_ref::<std::io::Error>().is_some() {
+                // Successfully downcast to io::Error - test passes
+            } else {
+                panic!("Expected IO error, got: {err:?}");
+            }
+        }
+        Ok(_) => panic!("Expected error for non-existent file"),
     }
 }
 

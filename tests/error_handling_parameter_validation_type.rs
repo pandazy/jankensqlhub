@@ -57,16 +57,17 @@ fn test_invalid_parameter_type_error() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    if let JankenError::ParameterTypeMismatch { data } = &err {
-        let expected = error_meta(data, M_EXPECTED).unwrap();
-        let got = error_meta(data, M_GOT).unwrap();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
         assert_eq!(
             expected,
             "integer, string, float, boolean, table_name, list or blob"
         );
         assert_eq!(got, "invalid_type");
     } else {
-        panic!("Expected ParameterTypeMismatch for invalid parameter type, got: {err:?}");
+        panic!("Expected ParameterTypeMismatch for invalid parameter type, got: {err_str}");
     }
 }
 

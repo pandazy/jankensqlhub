@@ -4,7 +4,11 @@
 Fix all remaining test file compilation failures by updating error handling patterns to use `anyhow::Error` downcast instead of direct `JankenError` matching.
 
 ## Current Errors (from cargo check --tests)
-- [x] **ALL FIXED** - All compilation failures have been resolved
+- [x] `tests/enumif_tests_malformed.rs` (10 match errors - need downcast pattern)
+- [ ] `tests/error_handling_query_definition.rs` (16 match errors - need downcast pattern)
+- [ ] `tests/error_handling_utilities.rs` (unresolved imports, missing variants/constructors)
+- [x] `tests/enumif_tests_basic.rs` (1 match error - need downcast pattern)
+- [x] `tests/error_handling_parameter_validation_type.rs` (1 match error - need downcast pattern)
 
 ## Fixed Issues
 

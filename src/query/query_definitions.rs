@@ -1,5 +1,6 @@
 use crate::QueryDef;
-use crate::result::{JankenError, Result};
+use crate::result::JankenError;
+use anyhow;
 use serde_json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -13,21 +14,21 @@ pub struct QueryDefinitions {
 
 impl QueryDefinitions {
     /// Load query definitions from a JSON file
-    pub fn from_file(path: &str) -> Result<Self> {
+    pub fn from_file(path: &str) -> anyhow::Result<Self> {
         let content = fs::read_to_string(path)?;
         let json: serde_json::Value = serde_json::from_str(&content)?;
         Self::from_json(json)
     }
 
     /// Load query definitions from a serde_json::Value object
-    pub fn from_json(json: serde_json::Value) -> Result<Self> {
+    pub fn from_json(json: serde_json::Value) -> anyhow::Result<Self> {
         let json_map = match json.as_object() {
             Some(map) => map,
             None => {
                 let expected = "object";
                 let got = json.to_string();
                 let err = JankenError::new_parameter_type_mismatch(expected, got);
-                return Err(err);
+                return Err(err.into());
             }
         };
 
@@ -66,7 +67,7 @@ impl QueryDefinitions {
                 } else {
                     let expected = "array of strings";
                     let got = returns_val.to_string();
-                    return Err(JankenError::new_parameter_type_mismatch(expected, got));
+                    return Err(JankenError::new_parameter_type_mismatch(expected, got).into());
                 }
             } else {
                 // No returns specified - empty array

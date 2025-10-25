@@ -17,13 +17,10 @@ pub use parameters::{Parameter, ParameterType};
 pub use query::{QueryDef, QueryDefinitions};
 pub use result::{
     // Error codes
-    ERR_CODE_IO,
-    ERR_CODE_JSON,
     ERR_CODE_PARAMETER_NAME_CONFLICT,
     ERR_CODE_PARAMETER_NOT_PROVIDED,
     ERR_CODE_PARAMETER_TYPE_MISMATCH,
     ERR_CODE_QUERY_NOT_FOUND,
-    ERR_CODE_REGEX,
     JankenError,
     M_COLUMN,
     M_CONFLICT_NAME,

@@ -31,16 +31,14 @@ fn test_enum_and_enumif_mutual_exclusion() {
     );
 
     let err = result.unwrap_err();
-    match err {
-        JankenError::ParameterTypeMismatch { data } => {
-            let expected = error_meta(&data, M_EXPECTED).unwrap();
-            let got = error_meta(&data, M_GOT).unwrap();
-            assert_eq!(expected, "either 'enum' or 'enumif', not both");
-            assert_eq!(got, "'enum' and 'enumif' both specified");
-        }
-        _ => {
-            panic!("Expected ParameterTypeMismatch for enum and enumif both present, got: {err:?}")
-        }
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "either 'enum' or 'enumif', not both");
+        assert_eq!(got, "'enum' and 'enumif' both specified");
+    } else {
+        panic!("Expected ParameterTypeMismatch for enum and enumif both present, got: {err_str}");
     }
 
     // Test that only enum works fine (no enumif)
