@@ -23,7 +23,7 @@ A high-performance, modular Rust library for parameterizable SQL query managemen
 
 ### Parameter Syntax
 ```sql
--- Basic parameter syntax - @params default to string type if no args specified
+-- Basic parameter syntax - @param_name parameters default to string type (can be overridden)
 SELECT * FROM users WHERE id=@user_id AND name=@user_name
 
 -- Dynamic identifier parameters - #[xxx] syntax for table names, column names, etc. (always table_name type)
@@ -340,7 +340,6 @@ if let Some(janken_err) = error.downcast_ref::<JankenError>() {
 - **Query Not Found**: `{"query_name": "find_user_by_id"}`
 - **Parameter Not Provided**: `{"parameter_name": "user_id"}`
 - **Parameter Name Conflict**: `{"conflicting_name": "users"}`
-- **JSON Error**: `{"line": 5, "column": 12}`
 
 ## ⚡ Performance Characteristics
 
@@ -353,7 +352,7 @@ if let Some(janken_err) = error.downcast_ref::<JankenError>() {
 ## 🧪 Quality Assurance
 
 - **Test Coverage**: 100% coverage
-- **Zero Warnings**: `cargo clippy -- -D warnings` clean
+- **Zero Warnings**: Clean clippy warnings
 - **Memory Safety**: Rust ownership system guarantees
 - **Type Safety**: Compile-time parameter validation
 - **SQL Injection**: Automatic prepared statements prevent attacks
@@ -399,6 +398,26 @@ See the [operational guide](op.md) for testing setup and development instruction
 **Install from Crates.io:**
 ```bash
 cargo add jankensqlhub
+```
+
+### Feature Flags
+
+JankenSQLHub supports feature flags to include only the database backends you need:
+
+- **`all`** (default): Enable both SQLite and PostgreSQL support
+- **`sqlite`**: Enable only SQLite support
+- **`postgresql`**: Enable only PostgreSQL support
+
+**Examples:**
+```bash
+# Default (both SQLite and PostgreSQL)
+cargo add jankensqlhub
+
+# SQLite only
+cargo add jankensqlhub --features sqlite
+
+# PostgreSQL only
+cargo add jankensqlhub --features postgresql
 ```
 
 **Links:**

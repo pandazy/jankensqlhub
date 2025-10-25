@@ -81,6 +81,7 @@ When a new task begins:
 When being asked to update documents, check the codebase and see if any of the following documents have out-of-sync facts
 - README.md
 - release.md
+    - we only need contents of the latest version
 - op.md
 - .clinerules
 
