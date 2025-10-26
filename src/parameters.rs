@@ -323,10 +323,8 @@ pub fn prepare_parameter_statement_generic(
 
             // Safe unwrap: parameter type already validated at function start
             let table_name_str = table_name_value.as_str().unwrap();
-
-            let valid_ident = crate::str_utils::quote_identifier(table_name_str);
             prepared_sql = TABLE_NAME_REGEX
-                .replace(&prepared_sql, valid_ident)
+                .replace(&prepared_sql, table_name_str)
                 .to_string();
         }
     }
@@ -599,7 +597,7 @@ mod tests {
             prepare_parameter_statement_generic(sql, &parameters, &request_params).unwrap();
 
         // Table name should be quoted and replaced
-        assert_eq!(result.sql, "SELECT * FROM \"users\"");
+        assert_eq!(result.sql, "SELECT * FROM users");
         assert_eq!(result.parameters.len(), 0); // Table names don't create parameters
     }
 
@@ -672,7 +670,7 @@ mod tests {
 
         assert_eq!(
             result.sql,
-            "SELECT * FROM \"users\" WHERE id = @id AND active IN (@status_0, @status_1)"
+            "SELECT * FROM users WHERE id = @id AND active IN (@status_0, @status_1)"
         );
         assert_eq!(result.parameters.len(), 3);
 
