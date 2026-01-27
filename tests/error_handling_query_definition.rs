@@ -63,7 +63,7 @@ fn test_transaction_keywords_error_from_sql() {
 
 #[test]
 fn test_invalid_json_input_from_json() {
-    // Test QueryDefinitions::from_json with non-object input (covers line 115-117)
+    // Test QueryDefinitions::from_json with non-object input
     let bad_json = serde_json::json!(["array_instead_of_object"]);
     let result = jankensqlhub::query::QueryDefinitions::from_json(bad_json);
     assert!(result.is_err());
@@ -79,7 +79,7 @@ fn test_invalid_json_input_from_json() {
 
 #[test]
 fn test_invalid_query_definition_structure_from_json() {
-    // Test QueryDefinitions::from_json with invalid query definition structure (covers line 118-120)
+    // Test QueryDefinitions::from_json with invalid query definition structure
     let bad_definition = serde_json::json!({
         "bad_query_def": "string_instead_of_object"
     });
