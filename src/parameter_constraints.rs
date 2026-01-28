@@ -13,10 +13,38 @@ pub struct ParameterConstraints {
     pub pattern: Option<String>, // For string types: regex pattern
     pub enum_values: Option<Vec<serde_json::Value>>, // For any type: allowed values
     pub item_type: Option<crate::ParameterType>, // For list types: the type of each item
-    pub enumif: Option<HashMap<String, HashMap<String, Vec<serde_json::Value>>>>, // Conditional enums: {"other_param": {"value": [allowed_values]}}
+    pub enumif: Option<HashMap<String, HashMap<String, Vec<serde_json::Value>>>>, // Conditional enums: {"other_param": {"value": [allowed_values]}} where value can be "exact_match", "start:pattern", "end:pattern", or "contain:pattern"
 }
 
 impl ParameterConstraints {
+    /// Check if a condition key matches a value, supporting fuzzy matching patterns
+    ///
+    /// Any condition key containing ':' will be treated as a fuzzy match pattern.
+    ///
+    /// Patterns can be:
+    /// - "exact_value" - exact match (no colon)
+    /// - "start:pattern" - value starts with pattern
+    /// - "end:pattern" - value ends with pattern
+    /// - "contain:pattern" - value contains pattern
+    fn matches_condition_key(condition_key: &str, value_str: &str) -> bool {
+        if let Some(colon_pos) = condition_key.find(':') {
+            let (match_type, pattern) = condition_key.split_at(colon_pos);
+            let pattern = &pattern[1..]; // Skip the colon
+
+            match match_type {
+                "start" => value_str.starts_with(pattern),
+                "end" => value_str.ends_with(pattern),
+                "contain" => value_str.contains(pattern),
+                _ => unreachable!(
+                    "Invalid match type - should be validated at parse time in parse_constraints"
+                ),
+            }
+        } else {
+            // Exact match
+            condition_key == value_str
+        }
+    }
+
     /// Convert a JSON value to a condition key string for enumif constraints
     /// Only primitive values (String, Number, Bool) are allowed as condition keys
     pub(crate) fn value_to_condition_key(
@@ -233,11 +261,24 @@ impl ParameterConstraints {
                         let cond_val_str =
                             Self::value_to_condition_key(cond_val, conditional_param)?;
 
-                        if let Some(allowed) = conditions.get(&cond_val_str) {
-                            found_matching_condition = true;
-                            // Use the first matching condition (as processed in alphabetical order)
-                            if allowed_values.is_none() {
-                                allowed_values = Some(allowed);
+                        // Sort condition keys alphabetically for deterministic matching order
+                        let mut sorted_condition_keys: Vec<&String> = conditions.keys().collect();
+                        sorted_condition_keys.sort();
+
+                        // CONFLICT RESOLUTION: When multiple fuzzy patterns could match the same value
+                        // (e.g., "contain:admin" and "start:admin" both matching "admin_user"),
+                        // we use the first match in alphabetically sorted order.
+                        // This avoids unnecessary complication of trying to determine the "best" match
+                        // and provides predictable, deterministic behavior.
+                        for condition_key in sorted_condition_keys {
+                            if Self::matches_condition_key(condition_key, &cond_val_str) {
+                                found_matching_condition = true;
+                                // Use the first matching condition (as processed in alphabetical order)
+                                // If multiple conditional params match, the first one (alphabetically) wins
+                                if allowed_values.is_none() {
+                                    allowed_values = conditions.get(condition_key);
+                                }
+                                break; // Stop at first match for this conditional param
                             }
                         }
                     }
@@ -384,6 +425,33 @@ pub fn parse_constraints(
                     let mut conditions_map = HashMap::new();
 
                     for (value_key, allowed_values) in conditions_obj {
+                        // Validate the condition key format: either "name" or "match_type:name"
+                        // where match_type is "start", "end", or "contain"
+                        // and name is alphanumeric with underscores
+                        if let Some(colon_pos) = value_key.find(':') {
+                            let (match_type, pattern) = value_key.split_at(colon_pos);
+                            let pattern = &pattern[1..]; // Skip the colon
+
+                            // Validate match type
+                            if !matches!(match_type, "start" | "end" | "contain") {
+                                return Err(JankenError::new_parameter_type_mismatch(
+                                    "enumif condition key match type to be 'start', 'end', or 'contain'",
+                                    format!("{match_type} in condition key {value_key}"),
+                                ));
+                            }
+
+                            // Validate pattern name (alphanumeric with underscores) for security
+                            if pattern.is_empty()
+                                || !pattern.chars().all(|c| c.is_alphanumeric() || c == '_')
+                            {
+                                return Err(JankenError::new_parameter_type_mismatch(
+                                    "enumif fuzzy match pattern to be alphanumeric with underscores",
+                                    format!("{pattern} in condition key {value_key}"),
+                                ));
+                            }
+                        }
+                        // Exact match - no validation required, any string value is allowed
+
                         if let Some(allowed_array) = allowed_values.as_array() {
                             // Validate that enumif allowed values are only primitives (numbers, booleans, strings) - no blobs/arrays
                             for (i, allowed_value) in allowed_array.iter().enumerate() {

@@ -253,13 +253,25 @@ The `enumif` constraint allows parameter validation based on the values of other
 }
 ```
 
-**Validation Logic:**
-1. The conditional parameter value must match one of the defined conditions
-2. If multiple conditional parameters are specified, they're evaluated alphabetically by parameter name
-3. The first matching condition (alphabetically) determines the allowed values
-4. Parameter values must be in the allowed array for the matching condition
+**Fuzzy Matching Patterns:**
 
-**Example:**
+Condition keys support both exact matches and fuzzy matching patterns:
+- **Exact match**: `"value"` - matches the value exactly
+- **Start pattern**: `"start:prefix"` - matches values starting with the pattern (e.g., `"start:admin"` matches `"admin_user"`, `"admin_super"`)
+- **End pattern**: `"end:suffix"` - matches values ending with the pattern (e.g., `"end:txt"` matches `"document.txt"`, `"readme.txt"`)
+- **Contain pattern**: `"contain:substring"` - matches values containing the pattern (e.g., `"contain:error"` matches `"error_log"`, `"system_error"`)
+
+Note: Fuzzy match patterns must be alphanumeric with underscores only. Exact matches allow any string value.
+
+**Validation Logic:**
+1. The conditional parameter value must match one of the defined conditions (exact or fuzzy)
+2. If multiple conditional parameters are specified, they're evaluated alphabetically by parameter name
+3. Condition keys within each conditional parameter are also evaluated alphabetically
+4. **Conflict Resolution**: When multiple patterns could match the same value (e.g., `"contain:test"` and `"start:test"` both matching `"test123"`), the first match in alphabetical order is used. In this example, `"contain:test"` would be selected since 'c' comes before 's' alphabetically.
+5. The first matching condition (alphabetically) determines the allowed values
+6. Parameter values must be in the allowed array for the matching condition
+
+**Examples:**
 ```json
 {
   "media_source": {
@@ -275,6 +287,23 @@ The `enumif` constraint allows parameter validation based on the values of other
       "severity": {
         "high": ["urgent", "immediate"],
         "low": ["optional"]
+      }
+    }
+  },
+  "permission": {
+    "enumif": {
+      "role": {
+        "start:admin": ["read_all", "write_all", "delete_all"],
+        "start:user": ["read_own", "write_own"],
+        "contain:guest": ["read_public"]
+      }
+    }
+  },
+  "action": {
+    "enumif": {
+      "filename": {
+        "end:txt": ["read_text", "edit_text"],
+        "end:jpg": ["view_image", "resize_image"]
       }
     }
   }
