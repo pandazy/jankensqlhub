@@ -181,3 +181,137 @@ fn test_enumif_constraint_validation() {
         panic!("Expected ParameterNotProvided for missing conditional param, got: {err_str}");
     }
 }
+
+#[test]
+fn test_enumif_exact_match_allows_any_string() {
+    // Test that exact match keys allow any string values (no alphanumeric restriction)
+
+    let json_definitions = serde_json::json!({
+        "flexible_exact": {
+            "query": "SELECT * FROM data WHERE key=@key AND value=@value",
+            "returns": ["id", "key", "value"],
+            "args": {
+                "key": {},
+                "value": {
+                    "enumif": {
+                        "key": {
+                            "exact-key": ["option1", "option2"],
+                            "key_with_spaces": ["option3", "option4"],
+                            "key.with.dots": ["option5", "option6"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE data (id INTEGER PRIMARY KEY, key TEXT, value TEXT)",
+        [],
+    )
+    .unwrap();
+
+    // Test exact match with dash
+    let params = serde_json::json!({"key": "exact-key", "value": "option1"});
+    let result = query_run_sqlite(&mut conn, &queries, "flexible_exact", &params);
+    assert!(result.is_ok(), "Exact match with dash should work");
+
+    // Test exact match with spaces
+    let params = serde_json::json!({"key": "key_with_spaces", "value": "option3"});
+    let result = query_run_sqlite(&mut conn, &queries, "flexible_exact", &params);
+    assert!(result.is_ok(), "Exact match with spaces should work");
+
+    // Test exact match with dots
+    let params = serde_json::json!({"key": "key.with.dots", "value": "option5"});
+    let result = query_run_sqlite(&mut conn, &queries, "flexible_exact", &params);
+    assert!(result.is_ok(), "Exact match with dots should work");
+}
+
+#[test]
+fn test_enumif_enum_values_allow_any_string() {
+    // Test that enum values (the allowed values in arrays) can be any string,
+    // unlike fuzzy match patterns which must be alphanumeric with underscores
+
+    let json_definitions = serde_json::json!({
+        "special_values": {
+            "query": "SELECT * FROM data WHERE category=@category AND value=@value",
+            "returns": ["id", "category", "value"],
+            "args": {
+                "category": {},
+                "value": {
+                    "enumif": {
+                        "category": {
+                            "products": ["SKU-123", "ITEM.456", "product with spaces", "special@char"],
+                            "users": ["user-name", "email@domain.com", "first.last", "user 123"]
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE data (id INTEGER PRIMARY KEY, category TEXT, value TEXT)",
+        [],
+    )
+    .unwrap();
+
+    // Test enum value with dash
+    let params = serde_json::json!({"category": "products", "value": "SKU-123"});
+    let result = query_run_sqlite(&mut conn, &queries, "special_values", &params);
+    assert!(result.is_ok(), "Enum value with dash should work");
+
+    // Test enum value with dot
+    let params = serde_json::json!({"category": "products", "value": "ITEM.456"});
+    let result = query_run_sqlite(&mut conn, &queries, "special_values", &params);
+    assert!(result.is_ok(), "Enum value with dot should work");
+
+    // Test enum value with spaces
+    let params = serde_json::json!({"category": "products", "value": "product with spaces"});
+    let result = query_run_sqlite(&mut conn, &queries, "special_values", &params);
+    assert!(result.is_ok(), "Enum value with spaces should work");
+
+    // Test enum value with special characters
+    let params = serde_json::json!({"category": "products", "value": "special@char"});
+    let result = query_run_sqlite(&mut conn, &queries, "special_values", &params);
+    assert!(
+        result.is_ok(),
+        "Enum value with special characters should work"
+    );
+
+    // Test another category with various special characters
+    let params = serde_json::json!({"category": "users", "value": "email@domain.com"});
+    let result = query_run_sqlite(&mut conn, &queries, "special_values", &params);
+    assert!(result.is_ok(), "Enum value with email format should work");
+
+    let params = serde_json::json!({"category": "users", "value": "first.last"});
+    let result = query_run_sqlite(&mut conn, &queries, "special_values", &params);
+    assert!(result.is_ok(), "Enum value with dots should work");
+
+    let params = serde_json::json!({"category": "users", "value": "user 123"});
+    let result = query_run_sqlite(&mut conn, &queries, "special_values", &params);
+    assert!(
+        result.is_ok(),
+        "Enum value with space and numbers should work"
+    );
+
+    // Test that invalid value is rejected
+    let params = serde_json::json!({"category": "products", "value": "invalid-value"});
+    let err = query_run_sqlite(&mut conn, &queries, "special_values", &params).unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(expected.contains("SKU-123"));
+        assert!(expected.contains("special@char"));
+        assert_eq!(got, "\"invalid-value\"");
+    } else {
+        panic!("Expected ParameterTypeMismatch for invalid value, got: {err_str}");
+    }
+}
