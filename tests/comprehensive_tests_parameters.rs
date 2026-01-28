@@ -266,3 +266,115 @@ fn test_list_parameter_functionality() {
     assert!(returned_names.contains(&"Bob".to_string()));
     assert!(returned_names.contains(&"David".to_string()));
 }
+
+#[test]
+fn test_extra_args_in_query_def() {
+    use jankensqlhub::QueryDef;
+
+    // SQL with only one parameter
+    let sql = "SELECT * FROM users WHERE id = @id";
+
+    // Args with extra unused parameters
+    let args = serde_json::json!({
+        "id": {
+            "type": "integer"
+        },
+        "name": {
+            "type": "string"
+        },
+        "email": {
+            "type": "string"
+        },
+        "unused_param": {
+            "type": "boolean"
+        }
+    });
+
+    let args_map = args.as_object().unwrap();
+    let result = QueryDef::from_sql(sql, Some(args_map));
+
+    // This should succeed - extra args should be allowed
+    assert!(result.is_ok(), "QueryDef should allow extra unused args");
+
+    let query_def = result.unwrap();
+    // Only the @id parameter should be parsed from SQL
+    assert_eq!(query_def.parameters.len(), 1);
+    assert_eq!(query_def.parameters[0].name, "id");
+}
+
+#[test]
+fn test_extra_args_in_query_definitions() {
+    let json = serde_json::json!({
+        "get_user": {
+            "query": "SELECT * FROM users WHERE id = @id",
+            "args": {
+                "id": {
+                    "type": "integer"
+                },
+                "extra_arg1": {
+                    "type": "string"
+                },
+                "extra_arg2": {
+                    "type": "boolean"
+                }
+            },
+            "returns": ["id", "name"]
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json);
+
+    // This should succeed - extra args should be allowed
+    assert!(
+        result.is_ok(),
+        "QueryDefinitions should allow extra unused args"
+    );
+
+    let definitions = result.unwrap();
+    let query_def = definitions.definitions.get("get_user").unwrap();
+
+    // Only the @id parameter should be parsed from SQL
+    assert_eq!(query_def.parameters.len(), 1);
+    assert_eq!(query_def.parameters[0].name, "id");
+}
+
+#[test]
+fn test_mixed_used_and_unused_args() {
+    use jankensqlhub::QueryDef;
+
+    let sql = "INSERT INTO users (name, age) VALUES (@name, @age)";
+
+    let args = serde_json::json!({
+        "name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z]+$"
+        },
+        "age": {
+            "type": "integer",
+            "range": [0, 150]
+        },
+        "unused1": {
+            "type": "string"
+        },
+        "unused2": {
+            "type": "integer"
+        }
+    });
+
+    let args_map = args.as_object().unwrap();
+    let result = QueryDef::from_sql(sql, Some(args_map));
+
+    assert!(result.is_ok(), "Should allow mixed used and unused args");
+
+    let query_def = result.unwrap();
+    // Only @name and @age should be parsed
+    assert_eq!(query_def.parameters.len(), 2);
+
+    let param_names: Vec<String> = query_def
+        .parameters
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+    assert!(param_names.contains(&"name".to_string()));
+    assert!(param_names.contains(&"age".to_string()));
+}
