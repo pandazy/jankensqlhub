@@ -62,6 +62,144 @@ impl ParameterConstraints {
         }
     }
 
+    /// Validate a single value against pattern constraint
+    /// Returns Ok(()) if validation passes, Err if it fails
+    /// `context` is used to provide context in error messages (e.g., " at index 0" for array items)
+    fn validate_pattern(&self, value: &serde_json::Value, context: &str) -> Result<()> {
+        let Some(pattern) = &self.pattern else {
+            return Ok(());
+        };
+
+        // Defensive null check for resilience - null values are typically rejected
+        // by validate_basic_type before this is called, but we handle it here as well
+        if value.is_null() {
+            return Ok(());
+        }
+
+        if let Some(string_val) = value.as_str() {
+            let regex = Regex::new(pattern).map_err(|_| {
+                JankenError::new_parameter_type_mismatch("valid regex pattern", pattern.clone())
+            })?;
+            if !regex.is_match(string_val) {
+                return Err(JankenError::new_parameter_type_mismatch(
+                    format!("string matching pattern '{pattern}'{context}"),
+                    string_val,
+                ));
+            }
+        } else {
+            return Err(JankenError::new_parameter_type_mismatch(
+                ParameterType::String.to_string(),
+                value.to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validate a single value against enum constraint
+    /// Returns Ok(()) if validation passes, Err if it fails
+    /// `context` is used to provide context in error messages (e.g., " at index 0" for array items)
+    fn validate_enum(&self, value: &serde_json::Value, context: &str) -> Result<()> {
+        let Some(enum_values) = &self.enum_values else {
+            return Ok(());
+        };
+
+        if !enum_values.contains(value) {
+            let enum_str = enum_values
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(JankenError::new_parameter_type_mismatch(
+                format!("one of [{enum_str}]{context}"),
+                value.to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validate a single value against enumif constraints
+    /// Returns Ok(()) if validation passes, Err if it fails
+    /// `context` is used to provide context in error messages (e.g., " at index 0" for array items)
+    fn validate_enumif(
+        &self,
+        value: &serde_json::Value,
+        param_name: &str,
+        all_params: &serde_json::Map<String, serde_json::Value>,
+        context: &str,
+    ) -> Result<()> {
+        let Some(enumif) = &self.enumif else {
+            return Ok(());
+        };
+
+        // Sort the conditional parameters alphabetically for deterministic behavior
+        let mut sorted_conditional_params: Vec<&String> = enumif.keys().collect();
+        sorted_conditional_params.sort();
+
+        let mut found_matching_condition = false;
+        let mut allowed_values: Option<&Vec<serde_json::Value>> = None;
+
+        for conditional_param in sorted_conditional_params {
+            if let Some(conditions) = enumif.get(conditional_param) {
+                if let Some(cond_val) = all_params.get(conditional_param) {
+                    // Get the conditional value as a string key (without JSON quotes)
+                    let cond_val_str = Self::value_to_condition_key(cond_val, conditional_param)?;
+
+                    // Sort condition keys alphabetically for deterministic matching order
+                    let mut sorted_condition_keys: Vec<&String> = conditions.keys().collect();
+                    sorted_condition_keys.sort();
+
+                    // CONFLICT RESOLUTION: When multiple fuzzy patterns could match the same value
+                    // (e.g., "contain:admin" and "start:admin" both matching "admin_user"),
+                    // we use the first match in alphabetically sorted order.
+                    // This avoids unnecessary complication of trying to determine the "best" match
+                    // and provides predictable, deterministic behavior.
+                    for condition_key in sorted_condition_keys {
+                        if Self::matches_condition_key(condition_key, &cond_val_str) {
+                            found_matching_condition = true;
+                            // Use the first matching condition (as processed in alphabetical order)
+                            // If multiple conditional params match, the first one (alphabetically) wins
+                            if allowed_values.is_none() {
+                                allowed_values = conditions.get(condition_key);
+                            }
+                            break; // Stop at first match for this conditional param
+                        }
+                    }
+                }
+            }
+        }
+
+        // Security: If we have enumif constraint but no matching condition was found,
+        // this means the conditional parameter value doesn't correspond to any defined condition,
+        // which implies invalid state and should be rejected to prevent injection
+        if !found_matching_condition {
+            return Err(JankenError::new_parameter_type_mismatch(
+                "conditional parameter value that matches a defined condition",
+                format!(
+                    "value not covered by any enumif condition for parameter {param_name}{context}"
+                ),
+            ));
+        }
+
+        // Validate against the allowed values from the matching condition
+        if let Some(allowed) = allowed_values {
+            if !allowed.contains(value) {
+                let allowed_str = allowed
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(JankenError::new_parameter_type_mismatch(
+                    format!("one of [{allowed_str}] based on conditional parameters{context}"),
+                    value.to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Validate basic type (without any constraints)
     fn validate_basic_type(
         value: &serde_json::Value,
@@ -133,6 +271,17 @@ impl ParameterConstraints {
         JankenError::new_parameter_type_mismatch(param_type.to_string(), value.to_string())
     }
 
+    /// Validate that a string is a valid table name (alphanumeric and underscores only)
+    fn validate_table_name_format(table_name: &str, context: &str) -> Result<()> {
+        if table_name.is_empty() || !table_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(JankenError::new_parameter_type_mismatch(
+                format!("valid table name (alphanumeric and underscores only){context}"),
+                table_name,
+            ));
+        }
+        Ok(())
+    }
+
     /// Validate parameter constraints (range, pattern, enum, enumif) assuming basic type validation is already done
     fn validate_constraints(
         &self,
@@ -144,16 +293,18 @@ impl ParameterConstraints {
         // First validate basic type
         Self::validate_basic_type(value, param_type)?;
         // Then validate the constraint rules
-        self.validate_constraint_rules(value, param_type, param_name, all_params)
+        self.validate_constraint_rules(value, param_type, param_name, all_params, "")
     }
 
     /// Validate constraint rules (range, pattern, enum, enumif) only, assuming basic type is already validated
+    /// `context` is used to provide context in error messages (e.g., " at index 0" for array items)
     fn validate_constraint_rules(
         &self,
         value: &serde_json::Value,
         param_type: &crate::ParameterType,
         param_name: &str,
         all_params: &serde_json::Map<String, serde_json::Value>,
+        context: &str,
     ) -> Result<()> {
         // Check that range is only specified for numeric types and blob
         if self.range.is_some()
@@ -181,7 +332,7 @@ impl ParameterConstraints {
                         if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
                             if num_val < min || num_val > max {
                                 return Err(JankenError::new_parameter_type_mismatch(
-                                    format!("value between {min} and {max}"),
+                                    format!("value between {min} and {max}{context}"),
                                     num_val.to_string(),
                                 ));
                             }
@@ -194,7 +345,7 @@ impl ParameterConstraints {
                         if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
                             if blob_size < min || blob_size > max {
                                 return Err(JankenError::new_parameter_type_mismatch(
-                                    format!("blob size between {min} and {max} bytes"),
+                                    format!("blob size between {min} and {max} bytes{context}"),
                                     format!("{blob_size} bytes"),
                                 ));
                             }
@@ -205,111 +356,14 @@ impl ParameterConstraints {
             }
         }
 
-        // Check pattern for string types (skip if value is null)
-        if let Some(pattern) = &self.pattern {
-            if !value.is_null() {
-                if let Some(string_val) = value.as_str() {
-                    let regex = Regex::new(pattern).map_err(|_| {
-                        JankenError::new_parameter_type_mismatch(
-                            "valid regex pattern",
-                            pattern.clone(),
-                        )
-                    })?;
-                    if !regex.is_match(string_val) {
-                        return Err(JankenError::new_parameter_type_mismatch(
-                            format!("string matching pattern '{pattern}'"),
-                            string_val,
-                        ));
-                    }
-                } else {
-                    return Err(JankenError::new_parameter_type_mismatch(
-                        ParameterType::String.to_string(),
-                        value.to_string(),
-                    ));
-                }
-            }
-        }
+        // Check pattern for string types
+        self.validate_pattern(value, context)?;
 
         // Check enum values
-        if let Some(enum_values) = &self.enum_values {
-            if !enum_values.contains(value) {
-                let enum_str = enum_values
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Err(JankenError::new_parameter_type_mismatch(
-                    format!("one of [{enum_str}]"),
-                    value.to_string(),
-                ));
-            }
-        }
+        self.validate_enum(value, context)?;
 
-        // Check conditional enum constraints - this is security-critical, so we must find valid conditions
-        if let Some(enumif) = &self.enumif {
-            // Sort the conditional parameters alphabetically for deterministic behavior
-            let mut sorted_conditional_params: Vec<&String> = enumif.keys().collect();
-            sorted_conditional_params.sort();
-
-            let mut found_matching_condition = false;
-            let mut allowed_values: Option<&Vec<serde_json::Value>> = None;
-
-            for conditional_param in sorted_conditional_params {
-                if let Some(conditions) = enumif.get(conditional_param) {
-                    if let Some(cond_val) = all_params.get(conditional_param) {
-                        // Get the conditional value as a string key (without JSON quotes)
-                        let cond_val_str =
-                            Self::value_to_condition_key(cond_val, conditional_param)?;
-
-                        // Sort condition keys alphabetically for deterministic matching order
-                        let mut sorted_condition_keys: Vec<&String> = conditions.keys().collect();
-                        sorted_condition_keys.sort();
-
-                        // CONFLICT RESOLUTION: When multiple fuzzy patterns could match the same value
-                        // (e.g., "contain:admin" and "start:admin" both matching "admin_user"),
-                        // we use the first match in alphabetically sorted order.
-                        // This avoids unnecessary complication of trying to determine the "best" match
-                        // and provides predictable, deterministic behavior.
-                        for condition_key in sorted_condition_keys {
-                            if Self::matches_condition_key(condition_key, &cond_val_str) {
-                                found_matching_condition = true;
-                                // Use the first matching condition (as processed in alphabetical order)
-                                // If multiple conditional params match, the first one (alphabetically) wins
-                                if allowed_values.is_none() {
-                                    allowed_values = conditions.get(condition_key);
-                                }
-                                break; // Stop at first match for this conditional param
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Security: If we have enumif constraint but no matching condition was found,
-            // this means the conditional parameter value doesn't correspond to any defined condition,
-            // which implies invalid state and should be rejected to prevent injection
-            if !found_matching_condition {
-                return Err(JankenError::new_parameter_type_mismatch(
-                    "conditional parameter value that matches a defined condition",
-                    format!("value not covered by any enumif condition for parameter {param_name}"),
-                ));
-            }
-
-            // Validate against the allowed values from the matching condition
-            if let Some(allowed) = allowed_values {
-                if !allowed.contains(value) {
-                    let allowed_str = allowed
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    return Err(JankenError::new_parameter_type_mismatch(
-                        format!("one of [{allowed_str}] based on conditional parameters"),
-                        value.to_string(),
-                    ));
-                }
-            }
-        }
+        // Check conditional enum constraints
+        self.validate_enumif(value, param_name, all_params, context)?;
 
         Ok(())
     }
@@ -332,18 +386,55 @@ impl ParameterConstraints {
             if let Some(item_type) = &self.item_type {
                 let array = value.as_array().unwrap(); // already verified at the beginning;
                 for (index, item) in array.iter().enumerate() {
+                    let context = format!(" at index {index}");
                     // Validate basic type and constraints for each item
                     if Self::validate_basic_type(item, item_type).is_err() {
                         return Err(JankenError::new_parameter_type_mismatch(
-                            format!("{item_type} at index {index}"),
+                            format!("{item_type}{context}"),
                             item.to_string(),
                         ));
                     }
-                    self.validate_constraint_rules(item, item_type, param_name, all_params)?;
+                    self.validate_constraint_rules(
+                        item, item_type, param_name, all_params, &context,
+                    )?;
                 }
             }
             // For Lists, constraints (range, pattern, enum) apply to items if item_type is set,
             // but not to the list itself, so we don't call validate_constraints after this match
+            return Ok(());
+        }
+
+        if param_type == &crate::ParameterType::CommaList {
+            if !value.is_array() {
+                return Err(Self::constraint_mismatch_error(param_type, value));
+            }
+
+            // Validate each item in the comma list - must be strings
+            let array = value.as_array().unwrap(); // already verified above
+            for (index, item) in array.iter().enumerate() {
+                let context = format!(" at index {index}");
+                // Each item must be a string
+                if !item.is_string() {
+                    return Err(JankenError::new_parameter_type_mismatch(
+                        format!("string{context}"),
+                        item.to_string(),
+                    ));
+                }
+
+                // Apply all constraints (pattern, enum, enumif) using the unified method
+                // Note: We use ParameterType::String since CommaList items are always strings
+                self.validate_constraint_rules(
+                    item,
+                    &crate::ParameterType::String,
+                    param_name,
+                    all_params,
+                    &context,
+                )?;
+
+                // Apply table name validation (alphanumeric and underscores only)
+                let string_val = item.as_str().unwrap();
+                Self::validate_table_name_format(string_val, &context)?;
+            }
             return Ok(());
         }
 
@@ -352,16 +443,7 @@ impl ParameterConstraints {
         if param_type == &crate::ParameterType::TableName {
             // value cannot be a non-string here since basic type validation has been done
             let table_name_str = value.as_str().unwrap();
-            if table_name_str.is_empty()
-                || !table_name_str
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || c == '_')
-            {
-                return Err(JankenError::new_parameter_type_mismatch(
-                    "valid table name (alphanumeric and underscores only)",
-                    table_name_str,
-                ));
-            }
+            Self::validate_table_name_format(table_name_str, "")?;
         }
 
         Ok(())
@@ -373,6 +455,25 @@ pub fn parse_constraints(
     constraints: &mut ParameterConstraints,
     arg_def: &serde_json::Value,
 ) -> Result<()> {
+    // Determine the type string for error messages
+    let arg_type = match arg_def {
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Null => "null",
+        serde_json::Value::Object(_) => "object",
+    };
+
+    // Validate that arg_def is an object
+    // If a parameter is explicitly defined in args, it must be an object with constraint fields
+    if !arg_def.is_object() {
+        return Err(JankenError::new_parameter_type_mismatch(
+            "parameter definition to be an object with constraint fields",
+            format!("{arg_def} (type: {arg_type})"),
+        ));
+    }
+
     if let Some(range_val) = arg_def.get("range") {
         let expected_content = "array with exactly 2 numbers for range constraint";
         let range_array = match range_val.as_array() {
@@ -530,6 +631,24 @@ pub fn parse_constraints(
 mod tests {
     use super::*;
     use crate::{M_EXPECTED, M_GOT, result::JankenError};
+
+    #[test]
+    fn test_validate_pattern_with_null_value() {
+        // Test that validate_pattern handles null values gracefully
+        // This is a defensive check for resilience - null values are typically
+        // rejected by validate_basic_type before reaching validate_pattern,
+        // but we handle it here as well for robustness
+        let constraints = ParameterConstraints {
+            pattern: Some("^[a-z]+$".to_string()),
+            ..Default::default()
+        };
+
+        let null_value = serde_json::Value::Null;
+        let result = constraints.validate_pattern(&null_value, "");
+
+        // Null values should pass pattern validation (early return with Ok)
+        assert!(result.is_ok());
+    }
 
     #[test]
     fn test_value_to_condition_key_non_primitive_error() {

@@ -137,6 +137,39 @@ fn execute_mutation_query(
     Ok(sql_statements)
 }
 
+/// Resolve the returns specification to actual field names
+fn resolve_returns(
+    returns_spec: &crate::query::ReturnsSpec,
+    request_params_obj: &serde_json::Map<String, serde_json::Value>,
+) -> anyhow::Result<Vec<String>> {
+    match returns_spec {
+        crate::query::ReturnsSpec::Static(fields) => Ok(fields.clone()),
+        crate::query::ReturnsSpec::Dynamic(param_name) => {
+            // Get the comma_list parameter value
+            let param_value = request_params_obj
+                .get(param_name)
+                .ok_or_else(|| JankenError::new_parameter_not_provided(param_name.clone()))?;
+
+            // Safe unwrap: parameter type already validated as array at definition time
+            let fields_array = param_value.as_array().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch(
+                    "array for comma_list parameter",
+                    param_value.to_string(),
+                )
+            })?;
+
+            // Convert to vector of strings
+            let fields: Vec<String> = fields_array
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+
+            Ok(fields)
+        }
+    }
+}
+
 /// Execute query with both read and mutation operations within a unified transaction
 /// This logic is mostly DB-independent but uses SQLite-specific transaction
 pub fn execute_query_unified(
@@ -144,39 +177,50 @@ pub fn execute_query_unified(
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     tx: &rusqlite::Transaction,
 ) -> anyhow::Result<QueryResult> {
-    if !query.returns.is_empty() {
+    // Resolve returns specification to actual field names
+    let returns_fields = resolve_returns(&query.returns, request_params_obj)?;
+
+    if !returns_fields.is_empty() {
         // Query with returns specified - return structured data
         let prepared =
             prepare_single_statement_sqlite(&query.sql, &query.parameters, request_params_obj)?;
         let mut stmt = tx.prepare(&prepared.sql)?;
         let named_params = prepared.as_named_params();
+
+        // Get column names from the prepared statement
+        let column_names: Vec<String> = stmt
+            .column_names()
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+
         let rows = stmt.query_map(&named_params[..], |row| {
             let mut obj = serde_json::Map::new();
-            for (idx, field_name) in query.returns.iter().enumerate() {
-                let value: rusqlite::Result<serde_json::Value> = match row.get_ref(idx) {
-                    Ok(rusqlite::types::ValueRef::Integer(i)) => {
-                        Ok(serde_json::Value::Number(i.into()))
-                    }
-                    Ok(rusqlite::types::ValueRef::Real(r)) => Ok(serde_json::Value::from(r)),
-                    Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
-                        String::from_utf8_lossy(s).to_string(),
-                    )),
-                    Ok(rusqlite::types::ValueRef::Blob(b)) => Ok(serde_json::Value::Array(
-                        b.iter()
-                            .map(|&byte| serde_json::Value::Number(byte.into()))
-                            .collect(),
-                    )),
-                    Ok(rusqlite::types::ValueRef::Null) => Ok(serde_json::Value::Null),
-                    Err(e) => Err(e),
+
+            for field_name in &returns_fields {
+                // Find the column index by matching the column name
+                let column_idx = column_names.iter().position(|name| name == field_name);
+
+                let value: serde_json::Value = match column_idx {
+                    Some(idx) => match row.get_ref(idx).expect("column index should be valid") {
+                        rusqlite::types::ValueRef::Integer(i) => {
+                            serde_json::Value::Number(i.into())
+                        }
+                        rusqlite::types::ValueRef::Real(r) => serde_json::Value::from(r),
+                        rusqlite::types::ValueRef::Text(s) => {
+                            serde_json::Value::String(String::from_utf8_lossy(s).to_string())
+                        }
+                        rusqlite::types::ValueRef::Blob(b) => serde_json::Value::Array(
+                            b.iter()
+                                .map(|&byte| serde_json::Value::Number(byte.into()))
+                                .collect(),
+                        ),
+                        rusqlite::types::ValueRef::Null => serde_json::Value::Null,
+                    },
+                    None => serde_json::Value::Null,
                 };
-                match value {
-                    Ok(val) => {
-                        obj.insert(field_name.clone(), val);
-                    }
-                    Err(_) => {
-                        obj.insert(field_name.clone(), serde_json::Value::Null);
-                    }
-                }
+
+                obj.insert(field_name.clone(), value);
             }
             Ok(serde_json::Value::Object(obj))
         })?;
@@ -220,4 +264,144 @@ pub fn query_run_sqlite(
     // Always commit the transaction (for both single and multi-statement queries)
     tx.commit()?;
     Ok(query_result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::query::ReturnsSpec;
+    use serde_json::json;
+
+    #[test]
+    fn test_resolve_returns_static() {
+        // Test static returns specification
+        let returns_spec = ReturnsSpec::Static(vec![
+            "id".to_string(),
+            "name".to_string(),
+            "email".to_string(),
+        ]);
+        let params = json!({}).as_object().unwrap().clone();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+        assert_eq!(result, vec!["id", "name", "email"]);
+    }
+
+    #[test]
+    fn test_resolve_returns_static_empty() {
+        // Test empty static returns
+        let returns_spec = ReturnsSpec::Static(vec![]);
+        let params = json!({}).as_object().unwrap().clone();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_valid() {
+        // Test dynamic returns with valid comma_list parameter
+        let returns_spec = ReturnsSpec::Dynamic("fields".to_string());
+        let params = json!({
+            "fields": ["id", "name", "email"]
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+        assert_eq!(result, vec!["id", "name", "email"]);
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_empty_array() {
+        // Test dynamic returns with empty array
+        let returns_spec = ReturnsSpec::Dynamic("fields".to_string());
+        let params = json!({
+            "fields": []
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_missing_parameter() {
+        // Test dynamic returns when parameter is not provided
+        let returns_spec = ReturnsSpec::Dynamic("fields".to_string());
+        let params = json!({}).as_object().unwrap().clone();
+
+        let result = resolve_returns(&returns_spec, &params);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        if let Ok(JankenError::ParameterNotProvided { .. }) = err.downcast::<JankenError>() {
+            // Test passed - got expected error type
+        } else {
+            panic!("Expected ParameterNotProvided error");
+        }
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_non_array_value() {
+        // Test dynamic returns with non-array value (defensive test)
+        // This case should be unreachable in normal flow due to validation,
+        // but we test it to ensure error handling works correctly
+        let returns_spec = ReturnsSpec::Dynamic("fields".to_string());
+        let params = json!({
+            "fields": "not_an_array"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let result = resolve_returns(&returns_spec, &params);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        if let Ok(JankenError::ParameterTypeMismatch { .. }) = err.downcast::<JankenError>() {
+            // Test passed - got expected error type
+        } else {
+            panic!("Expected ParameterTypeMismatch error");
+        }
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_non_array_number() {
+        // Test dynamic returns with number instead of array (defensive test)
+        let returns_spec = ReturnsSpec::Dynamic("fields".to_string());
+        let params = json!({
+            "fields": 123
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let result = resolve_returns(&returns_spec, &params);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        if let Ok(JankenError::ParameterTypeMismatch { .. }) = err.downcast::<JankenError>() {
+            // Test passed - got expected error type
+        } else {
+            panic!("Expected ParameterTypeMismatch error");
+        }
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_array_with_non_strings() {
+        // Test that filter_map correctly handles non-string values in array
+        let returns_spec = ReturnsSpec::Dynamic("fields".to_string());
+        let params = json!({
+            "fields": ["id", 123, "name", null, "email"]
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+        // Only string values should be included
+        assert_eq!(result, vec!["id", "name", "email"]);
+    }
 }

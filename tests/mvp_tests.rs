@@ -325,7 +325,7 @@ fn test_table_name_column_syntax() {
     let json_definitions = serde_json::json!({
         "select_column": {
             "query": "SELECT #[column_name] FROM source ORDER BY #[column_name]",
-            "returns": ["column_value"],
+            "returns": ["name"],
             "args": {
                 "column_name": { "enum": ["id", "name", "score"] }
             }
@@ -340,6 +340,6 @@ fn test_table_name_column_syntax() {
 
     // Should return values ordered alphabetically: Jane, John
     assert_eq!(result.data.len(), 2);
-    assert_eq!(result.data[0]["column_value"], "Jane");
-    assert_eq!(result.data[1]["column_value"], "John");
+    assert_eq!(result.data[0]["name"], "Jane");
+    assert_eq!(result.data[1]["name"], "John");
 }

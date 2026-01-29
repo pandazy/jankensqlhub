@@ -13,6 +13,8 @@ pub static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r"#\[(\w+)\]").unwrap());
 pub static LIST_PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
     once_cell::sync::Lazy::new(|| Regex::new(r":\[(\w+)\]").unwrap());
+pub static COMMA_LIST_REGEX: once_cell::sync::Lazy<Regex> =
+    once_cell::sync::Lazy::new(|| Regex::new(r"~\[(\w+)\]").unwrap());
 
 /// Parameter type enums for database operations
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +26,7 @@ pub enum ParameterType {
     TableName,
     List,
     Blob,
+    CommaList, // Array of table names joined with commas
 }
 
 impl FromStr for ParameterType {
@@ -56,6 +59,7 @@ impl std::fmt::Display for ParameterType {
             ParameterType::TableName => "table_name",
             ParameterType::List => "list",
             ParameterType::Blob => "blob",
+            ParameterType::CommaList => "comma_list",
         };
         write!(f, "{s}")
     }
@@ -70,25 +74,37 @@ pub struct Parameter {
 }
 
 /// Parse parameters from SQL while respecting quote boundaries
-/// Extracts normal parameters (@param), table name parameters (#\[table\]), and list parameters (:\[list\]) from the SQL.
+/// Extracts normal parameters (@param), table name parameters (#\[table\]), list parameters (:\[list\]), and comma list parameters (~\[param\]) from the SQL.
 /// Returns combined results. If a name is used for multiple parameter types, an error is returned.
 /// For @params: type defaults to String but can be overridden by "args" JSON
 /// For #\[table\] names: type is always TableName (auto-detected), only constraints from "args" JSON are applied
 /// For :\[list\] parameters: type is always List (auto-detected), constraints from "args" JSON are applied
+/// For ~\[param\] parameters: type is always CommaList (auto-detected), constraints from "args" JSON are applied
 pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
     let param_names = extract_parameters_with_regex(sql, &PARAMETER_REGEX);
     let table_names = extract_parameters_with_regex(sql, &TABLE_NAME_REGEX);
     let list_names = extract_parameters_with_regex(sql, &LIST_PARAMETER_REGEX);
+    let comma_list_names = extract_parameters_with_regex(sql, &COMMA_LIST_REGEX);
 
     // Check for conflicts between parameter names
     for table_name in &table_names {
-        if param_names.contains(table_name) || list_names.contains(table_name) {
+        if param_names.contains(table_name)
+            || list_names.contains(table_name)
+            || comma_list_names.contains(table_name)
+        {
             return Err(JankenError::new_parameter_name_conflict(table_name.clone()));
         }
     }
     for list_name in &list_names {
-        if param_names.contains(list_name) {
+        if param_names.contains(list_name) || comma_list_names.contains(list_name) {
             return Err(JankenError::new_parameter_name_conflict(list_name.clone()));
+        }
+    }
+    for comma_list_name in &comma_list_names {
+        if param_names.contains(comma_list_name) {
+            return Err(JankenError::new_parameter_name_conflict(
+                comma_list_name.clone(),
+            ));
         }
     }
 
@@ -117,6 +133,15 @@ pub fn parse_parameters_with_quotes(sql: &str) -> Result<Vec<Parameter>> {
         parameters.push(Parameter {
             name: name.clone(),
             param_type: ParameterType::List,
+            constraints: ParameterConstraints::default(),
+        });
+    }
+
+    // Add comma list parameters (~[param])
+    for name in &comma_list_names {
+        parameters.push(Parameter {
+            name: name.clone(),
+            param_type: ParameterType::CommaList,
             constraints: ParameterConstraints::default(),
         });
     }
@@ -255,6 +280,13 @@ pub fn json_value_to_parameter_value(
                 "list parameter (should be expanded)",
             ))
         }
+        ParameterType::CommaList => {
+            // CommaList parameters are expanded separately, so we shouldn't convert them here
+            Err(JankenError::new_parameter_type_mismatch(
+                "non-comma-list parameter",
+                "comma-list parameter (should be expanded)",
+            ))
+        }
         ParameterType::Blob => {
             let bytes = value
                 .as_array()
@@ -366,6 +398,48 @@ pub fn prepare_parameter_statement_generic(
                     .replace(&prepared_sql, format!("({placeholder_str})"))
                     .to_string();
             }
+        }
+    }
+
+    // Handle comma list parameter replacement (~[param])
+    for cap in COMMA_LIST_REGEX.captures_iter(&prepared_sql.clone()) {
+        if let Some(full_match) = cap.get(0) {
+            // Skip if this match is within quotes
+            if is_in_quotes(&prepared_sql, full_match.start()) {
+                continue;
+            }
+        }
+
+        if let Some(param_name_match) = cap.get(1) {
+            let comma_list_param_name = param_name_match.as_str();
+
+            // Safe unwrap: parameter presence already validated at function start
+            let comma_list_value = request_params_obj.get(comma_list_param_name).unwrap();
+
+            // Safe unwrap: parameter type already validated as array at function start
+            let comma_list_array = comma_list_value.as_array().unwrap();
+
+            // Array emptiness is already validated by constraints at function start
+            if comma_list_array.is_empty() {
+                return Err(JankenError::new_parameter_type_mismatch(
+                    "non-empty array",
+                    "empty array",
+                ));
+            }
+
+            // Validate that all elements are strings (table names)
+            let mut table_names = Vec::new();
+            for item in comma_list_array {
+                // Safe unwrap: parameter presence already validated at function start
+                let table_name = item.as_str().unwrap();
+                table_names.push(table_name);
+            }
+
+            // Join table names with comma and replace
+            let joined_names = table_names.join(",");
+            prepared_sql = COMMA_LIST_REGEX
+                .replace(&prepared_sql, &joined_names)
+                .to_string();
         }
     }
 
@@ -486,6 +560,27 @@ mod tests {
                 let got = metadata.get("got").unwrap().as_str().unwrap();
                 assert_eq!(expected, "non-list parameter");
                 assert_eq!(got, "list parameter (should be expanded)");
+            }
+            _ => panic!("Expected ParameterTypeMismatch error"),
+        }
+    }
+
+    #[test]
+    fn test_json_value_to_parameter_value_comma_list() {
+        let json_val = json!(["table1", "table2"]);
+        let result = json_value_to_parameter_value(&json_val, &ParameterType::CommaList);
+        assert!(matches!(
+            result,
+            Err(JankenError::ParameterTypeMismatch { .. })
+        ));
+        match result {
+            Err(JankenError::ParameterTypeMismatch { data }) => {
+                let metadata: serde_json::Value =
+                    serde_json::from_str(&data.metadata.unwrap_or("{}".to_string())).unwrap();
+                let expected = metadata.get("expected").unwrap().as_str().unwrap();
+                let got = metadata.get("got").unwrap().as_str().unwrap();
+                assert_eq!(expected, "non-comma-list parameter");
+                assert_eq!(got, "comma-list parameter (should be expanded)");
             }
             _ => panic!("Expected ParameterTypeMismatch error"),
         }

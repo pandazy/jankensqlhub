@@ -443,3 +443,122 @@ async fn test_postgres_unsupported_type_fallback() {
         "String should indicate unsupported type, got: {timestamp_str}"
     );
 }
+
+/// Integration test for dynamic returns with comma-list parameter
+#[tokio::test]
+async fn test_postgres_dynamic_returns_with_comma_list() {
+    let Some(mut client) = setup_postgres_connection().await else {
+        println!("Skipping PostgreSQL tests - POSTGRES_CONNECTION_STRING not set");
+        return;
+    };
+
+    let test_table = "test_dynamic_returns";
+
+    // Clean up and create test table
+    let _ = client
+        .execute(&format!("DROP TABLE IF EXISTS {test_table}"), &[])
+        .await;
+
+    client
+        .execute(
+            &format!(
+                r#"
+            CREATE TABLE {test_table} (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                email TEXT,
+                age INTEGER
+            )
+            "#
+            ),
+            &[],
+        )
+        .await
+        .expect("Failed to create test table");
+
+    // Insert test data
+    client
+        .execute(
+            &format!(
+                "INSERT INTO {test_table} (name, email, age) VALUES ($1, $2, $3), ($4, $5, $6)"
+            ),
+            &[
+                &"Alice",
+                &"alice@test.com",
+                &25,
+                &"Bob",
+                &"bob@test.com",
+                &30,
+            ],
+        )
+        .await
+        .expect("Failed to insert test data");
+
+    let json_definitions = serde_json::json!({
+        "select_dynamic": {
+            "query": format!("SELECT ~[fields] FROM {test_table} ORDER BY id"),
+            "returns": "~[fields]",
+            "args": {
+                "fields": {"enum": ["id", "name", "email", "age"]}
+            }
+        }
+    });
+
+    let queries = jankensqlhub::QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Test 1: Select only name and email
+    let params1 = serde_json::json!({"fields": ["name", "email"]});
+    let result1 = query_run_postgresql(&mut client, &queries, "select_dynamic", &params1)
+        .await
+        .unwrap();
+
+    assert_eq!(result1.data.len(), 2, "Should have two rows");
+    let row1 = result1.data[0].as_object().unwrap();
+    assert_eq!(row1.len(), 2, "Should have exactly 2 fields");
+    assert_eq!(row1.get("name"), Some(&serde_json::json!("Alice")));
+    assert_eq!(
+        row1.get("email"),
+        Some(&serde_json::json!("alice@test.com"))
+    );
+    assert!(!row1.contains_key("id"), "Should not contain id field");
+    assert!(!row1.contains_key("age"), "Should not contain age field");
+
+    // Test 2: Select all fields
+    let params2 = serde_json::json!({"fields": ["id", "name", "email", "age"]});
+    let result2 = query_run_postgresql(&mut client, &queries, "select_dynamic", &params2)
+        .await
+        .unwrap();
+
+    assert_eq!(result2.data.len(), 2, "Should have two rows");
+    let row2 = result2.data[0].as_object().unwrap();
+    assert_eq!(row2.len(), 4, "Should have exactly 4 fields");
+    assert!(row2.contains_key("id"));
+    assert!(row2.contains_key("name"));
+    assert!(row2.contains_key("email"));
+    assert!(row2.contains_key("age"));
+
+    // Test 3: Select single field
+    let params3 = serde_json::json!({"fields": ["name"]});
+    let result3 = query_run_postgresql(&mut client, &queries, "select_dynamic", &params3)
+        .await
+        .unwrap();
+
+    assert_eq!(result3.data.len(), 2, "Should have two rows");
+    let row3a = result3.data[0].as_object().unwrap();
+    let row3b = result3.data[1].as_object().unwrap();
+    assert_eq!(row3a.len(), 1, "Should have exactly 1 field");
+    assert_eq!(row3a.get("name"), Some(&serde_json::json!("Alice")));
+    assert_eq!(row3b.get("name"), Some(&serde_json::json!("Bob")));
+
+    // Test 4: Different field order
+    let params4 = serde_json::json!({"fields": ["age", "name"]});
+    let result4 = query_run_postgresql(&mut client, &queries, "select_dynamic", &params4)
+        .await
+        .unwrap();
+
+    assert_eq!(result4.data.len(), 2, "Should have two rows");
+    let row4 = result4.data[0].as_object().unwrap();
+    assert_eq!(row4.len(), 2, "Should have exactly 2 fields");
+    assert_eq!(row4.get("age"), Some(&serde_json::json!(25)));
+    assert_eq!(row4.get("name"), Some(&serde_json::json!("Alice")));
+}

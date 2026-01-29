@@ -85,3 +85,41 @@ fn test_sqlite_real_nan_handling() {
     assert_eq!(result.data[0], serde_json::json!({"value": null})); // Infinity -> null
     assert_eq!(result.data[1], serde_json::json!({"value": "invalid"}));
 }
+
+#[test]
+fn test_sqlite_missing_field_returns_null() {
+    // This test specifically covers line 183 in runner_sqlite.rs
+    // where a field in returns doesn't exist in the actual column names
+    let mut conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE test_data (id INTEGER, name TEXT)", [])
+        .unwrap();
+    conn.execute("INSERT INTO test_data VALUES (1, 'test')", [])
+        .unwrap();
+
+    let json_definitions = serde_json::json!({
+        "select_with_missing_field": {
+            "query": "SELECT id, name FROM test_data",
+            "returns": ["id", "name", "nonexistent_column"],
+            "args": {}
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let params = serde_json::json!({});
+    let result =
+        jankensqlhub::query_run_sqlite(&mut conn, &queries, "select_with_missing_field", &params)
+            .unwrap();
+
+    assert_eq!(result.data.len(), 1);
+    let row = &result.data[0];
+
+    // Verify existing fields are returned correctly
+    assert_eq!(row.get("id"), Some(&serde_json::json!(1)));
+    assert_eq!(row.get("name"), Some(&serde_json::json!("test")));
+
+    // Verify non-existent field returns null (this exercises line 183)
+    assert_eq!(
+        row.get("nonexistent_column"),
+        Some(&serde_json::json!(null))
+    );
+}

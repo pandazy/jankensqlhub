@@ -6,12 +6,21 @@ use crate::{
 };
 use std::str::FromStr;
 
+/// Specification for which fields to return from a query
+#[derive(Debug, Clone)]
+pub enum ReturnsSpec {
+    /// Static list of field names specified at definition time
+    Static(Vec<String>),
+    /// Dynamic reference to a comma_list parameter: ~[param_name]
+    Dynamic(String), // Stores the parameter name (without ~[])
+}
+
 /// Represents a parsed SQL query with parameters
 #[derive(Debug)]
 pub struct QueryDef {
     pub sql: String,
     pub parameters: Vec<Parameter>,
-    pub returns: Vec<String>,
+    pub returns: ReturnsSpec,
 }
 
 impl QueryDef {
@@ -33,7 +42,7 @@ impl QueryDef {
         Ok(QueryDef {
             sql: sql.to_string(),
             parameters,
-            returns: Vec::new(),
+            returns: ReturnsSpec::Static(Vec::new()),
         })
     }
 
@@ -58,8 +67,12 @@ impl QueryDef {
         };
 
         // For each parameter that doesn't have an arg definition, add default string type
-        // Skip parameters that are not String type (i.e., TableName, List are auto-detected)
-        let skip_types = [ParameterType::TableName, ParameterType::List];
+        // Skip parameters that are not String type (i.e., TableName, List, CommaList are auto-detected)
+        let skip_types = [
+            ParameterType::TableName,
+            ParameterType::List,
+            ParameterType::CommaList,
+        ];
         for param in parameters {
             if !skip_types.contains(&param.param_type) && !augmented_args.contains_key(&param.name)
             {
@@ -75,7 +88,10 @@ impl QueryDef {
         param: &mut Parameter,
         args: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
-        if param.param_type == ParameterType::TableName || param.param_type == ParameterType::List {
+        if param.param_type == ParameterType::TableName
+            || param.param_type == ParameterType::List
+            || param.param_type == ParameterType::CommaList
+        {
             Self::process_automatic_parameter(param, args)?;
         } else {
             Self::process_regular_parameter(param, args)?;

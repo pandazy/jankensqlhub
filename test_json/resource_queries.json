@@ -24,7 +24,7 @@
     }
   },
   "select_related_entities": {
-    "query": "select r.id as rel_id, r.#[source_fk], r.#[target_fk], s.name as source_name, t.name as target_name, r.created_at from #[relation_table] r join #[source_table] s on r.#[source_fk] = s.id join #[target_table] t on r.#[target_fk] = t.id",
+    "query": "select r.id as rel_id, r.#[source_fk] as source_id, r.#[target_fk] as target_id, s.name as source_name, t.name as target_name, r.created_at from #[relation_table] r join #[source_table] s on r.#[source_fk] = s.id join #[target_table] t on r.#[target_fk] = t.id",
     "returns": ["rel_id", "source_id", "target_id", "source_name", "target_name", "created_at"],
     "args": {
       "relation_table": {

@@ -1,73 +1,126 @@
-# Release Notes v1.1.0
+# Release Notes v1.2.0
 
-## ✨ **New Feature: Enumif Fuzzy Matching**
+## 🎯 **Major Features**
 
-### Overview
-Added fuzzy matching support to `enumif` constraints, enabling flexible pattern-based conditional validation. This powerful feature allows condition keys to use patterns for matching values, making enumif constraints more versatile and reducing configuration verbosity.
+### 1. ✨ Returns Field Mapping by Name
 
-### Pattern Types
+Changed the "returns" field implementation to map database columns by name instead of positional indexing, making queries more robust and flexible.
 
-Enumif conditions now support three fuzzy matching patterns:
+**Benefits:**
+- ✅ Results independent of column order in SELECT statements
+- ✅ Works correctly with `SELECT *` queries
+- ✅ Compatible with dynamic table/column names (`#[table_name]` syntax)
+- ✅ Missing columns map to `null` instead of causing errors
 
-1. **`start:pattern`** - Matches values starting with the pattern
-   ```json
-   "start:admin": ["read_all", "write_all", "delete_all"]
-   ```
-   Matches: "admin_super", "admin_level2", etc.
-
-2. **`end:pattern`** - Matches values ending with the pattern
-   ```json
-   "end:_txt": ["edit", "view"]
-   ```
-   Matches: "file_txt", "document_txt", etc.
-
-3. **`contain:pattern`** - Matches values containing the pattern
-   ```json
-   "contain:error": ["critical", "high"]
-   ```
-   Matches: "error_occurred", "system_error", etc.
-
-### Example Usage
-
+**Example:**
 ```json
 {
-  "user_search": {
-    "query": "SELECT * FROM users WHERE role=@role AND permission=@permission",
-    "args": {
-      "role": {},
-      "permission": {
-        "enumif": {
-          "role": {
-            "start:admin": ["read_all", "write_all", "delete_all"],
-            "start:user": ["read_own", "write_own"],
-            "guest": ["read_public"]
-          }
-        }
-      }
-    }
+  "query": "SELECT id, name, email FROM users WHERE id=@id",
+  "returns": ["name", "email", "id"],  // Order doesn't matter!
+  "args": {"id": {"type": "integer"}}
+}
+```
+
+---
+
+### 2. 🆕 Comma List Parameter Feature (`~[param]`)
+
+Added support for `~[param]` syntax to replace placeholders with comma-separated values, enabling dynamic field selection and table lists.
+
+**Syntax:**
+```sql
+SELECT ~[fields] FROM users WHERE status='active'
+```
+
+**With runtime params:**
+```json
+{"fields": ["name", "email", "age"]}
+```
+
+**Becomes:**
+```sql
+SELECT name,email,age FROM users WHERE status='active'
+```
+
+**Key Features:**
+- Dynamic field selection: `SELECT ~[fields] FROM table`
+- Dynamic table lists: `SELECT * FROM ~[tables]`
+- Constraint support: Works with `enum` and `pattern` constraints
+- SQL injection prevention: Validates alphanumeric + underscore only
+
+---
+
+### 3. 🔄 Dynamic Returns Specification
+
+Added support for `~[param_name]` syntax in the "returns" field, allowing return fields to be determined at runtime from a comma_list parameter.
+
+**Static Returns (traditional):**
+```json
+{
+  "query": "SELECT name, email, age FROM users",
+  "returns": ["name", "email"]
+}
+```
+
+**Dynamic Returns (new):**
+```json
+{
+  "query": "SELECT ~[fields] FROM users WHERE status='active'",
+  "returns": "~[fields]",
+  "args": {
+    "fields": {"enum": ["name", "email", "age"]}
   }
 }
 ```
 
-### Key Features
+**Runtime Flexibility:**
+- Same query definition can return different fields per request
+- Request 1: `{"fields": ["name"]}` → returns only name
+- Request 2: `{"fields": ["name", "email"]}` → returns name and email
 
-- **Mixed patterns**: Combine exact matches with fuzzy patterns in the same enumif definition
-- **Deterministic behavior**: Alphabetically sorted condition keys ensure consistent matching order
-- **Security maintained**: Pattern validation at definition time prevents malformed configurations
-- **Case-sensitive**: All matching is case-sensitive for security and precision
-
-### Pattern Validation
-
-- **Fuzzy patterns** (`start:`, `end:`, `contain:`): Pattern names must be alphanumeric with underscores (e.g., `start:admin_role`)
-- **Exact matches**: Any string that doesn't contain ':' is treated as an exact match with no character restrictions (e.g., "user-role", "status.active")
-- Invalid match types or empty patterns are rejected at definition time
-
-### Technical Details
-
-- Alphabetical precedence: When multiple patterns match, the first one alphabetically is used
-- Backward compatible: Existing enumif configurations work without changes
-- Comprehensive test coverage: 8 new test cases covering all fuzzy matching scenarios
+**Validation:**
+- Invalid format → clear error message
+- Non-existent parameter → clear error message  
+- Parameter not CommaList type → clear error message
+- Missing at runtime → clear error message
 
 ---
 
-**Version 1.1.0** - Added fuzzy matching support to enumif constraints with `start:`, `end:`, and `contain:` patterns
+## 🔒 **Enhanced Validation**
+
+### Args Validation
+Strengthened validation for parameter definitions in the `args` object:
+
+- **✅ Parameter NOT in args** → Valid (no constraints applied)
+- **✅ Parameter with object value** → Valid (e.g., `{"enum": [...]}`)
+- **❌ Parameter with non-object value** → Error (e.g., `["value"]`, `"string"`)
+
+---
+
+## 🧪 **Testing**
+
+All 172 tests passing:
+- ✅ 21 comma list parameter tests
+- ✅ 13 dynamic returns tests  
+- ✅ 48 unit tests for resolve_returns and parameter handling
+- ✅ Complete coverage for returns mapping
+- ✅ All SQLite and PostgreSQL integration tests
+
+## 🔧 **Files Modified**
+
+**Returns Mapping:**
+- `src/runner_postgresql.rs` - Name-based mapping for PostgreSQL
+- `src/runner_sqlite.rs` - Name-based mapping for SQLite
+
+**Comma List Feature:**
+- `src/parameters.rs` - Added `~[param]` parsing and validation
+- `src/parameter_constraints.rs` - Comma list constraint validation
+
+**Dynamic Returns:**
+- `src/query/query_def.rs` - Added `ReturnsSpec` enum
+- `src/query/query_definitions.rs` - Enhanced parsing logic
+- `tests/dynamic_returns_tests.rs` - Comprehensive test suite
+
+---
+
+**Version 1.2.0** - Name-based returns mapping, comma list parameters, and dynamic returns specification

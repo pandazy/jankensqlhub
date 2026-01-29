@@ -131,10 +131,19 @@ fn row_to_json_object(
     returns: &[String],
 ) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
     let mut obj = serde_json::Map::new();
-    for (idx, field_name) in returns.iter().enumerate() {
-        // PostgreSQL row indexing starts at 0
-        let value = match row.columns().get(idx) {
-            Some(col) => postgres_type_to_json_conversion(col.type_(), row, idx),
+
+    // Get all columns from the row
+    let columns = row.columns();
+
+    for field_name in returns {
+        // Find the column index by matching the column name
+        let column_idx = columns.iter().position(|col| col.name() == field_name);
+
+        let value = match column_idx {
+            Some(idx) => {
+                let col = &columns[idx];
+                postgres_type_to_json_conversion(col.type_(), row, idx)
+            }
             None => Ok(serde_json::Value::Null),
         };
 
@@ -257,13 +266,48 @@ async fn execute_mutation_query(
     Ok(sql_statements)
 }
 
+/// Resolve the returns specification to actual field names
+fn resolve_returns(
+    returns_spec: &crate::query::ReturnsSpec,
+    request_params_obj: &serde_json::Map<String, serde_json::Value>,
+) -> anyhow::Result<Vec<String>> {
+    match returns_spec {
+        crate::query::ReturnsSpec::Static(fields) => Ok(fields.clone()),
+        crate::query::ReturnsSpec::Dynamic(param_name) => {
+            // Get the comma_list parameter value
+            let param_value = request_params_obj
+                .get(param_name)
+                .ok_or_else(|| JankenError::new_parameter_not_provided(param_name.clone()))?;
+
+            let fields_array = param_value.as_array().ok_or_else(|| {
+                JankenError::new_parameter_type_mismatch(
+                    "array for comma_list parameter",
+                    param_value.to_string(),
+                )
+            })?;
+
+            // Convert to vector of strings
+            let fields: Vec<String> = fields_array
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+
+            Ok(fields)
+        }
+    }
+}
+
 // Execute query with both read and mutation operations within a unified transaction
 pub async fn execute_query_unified(
     query: &crate::query::QueryDef,
     request_params_obj: &serde_json::Map<String, serde_json::Value>,
     transaction: &mut tokio_postgres::Transaction<'_>,
 ) -> anyhow::Result<QueryResult> {
-    if !query.returns.is_empty() {
+    // Resolve returns specification to actual field names
+    let returns_fields = resolve_returns(&query.returns, request_params_obj)?;
+
+    if !returns_fields.is_empty() {
         // Query with returns specified - return structured data
         let prepared =
             prepare_single_statement_postgresql(&query.sql, &query.parameters, request_params_obj)?;
@@ -275,7 +319,7 @@ pub async fn execute_query_unified(
             .await
             .map_err(anyhow::Error::from)?;
 
-        let result_data = map_rows_to_json_data(rows, &query.returns)?;
+        let result_data = map_rows_to_json_data(rows, &returns_fields)?;
 
         Ok(QueryResult {
             sql_statements: vec![positional_sql],
@@ -344,5 +388,313 @@ mod tests {
         let _sql_blob: Box<dyn tokio_postgres::types::ToSql + Sync> =
             parameter_value_to_postgresql_tosql(blob_param);
         // The conversion function works correctly if it doesn't panic
+    }
+
+    // Tests for resolve_returns function
+    #[test]
+    fn test_resolve_returns_static_multiple_fields() {
+        let returns_spec = crate::query::ReturnsSpec::Static(vec![
+            "id".to_string(),
+            "name".to_string(),
+            "email".to_string(),
+        ]);
+        let params = serde_json::Map::new();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "id");
+        assert_eq!(result[1], "name");
+        assert_eq!(result[2], "email");
+    }
+
+    #[test]
+    fn test_resolve_returns_static_single_field() {
+        let returns_spec = crate::query::ReturnsSpec::Static(vec!["name".to_string()]);
+        let params = serde_json::Map::new();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "name");
+    }
+
+    #[test]
+    fn test_resolve_returns_static_empty_list() {
+        let returns_spec = crate::query::ReturnsSpec::Static(vec![]);
+        let params = serde_json::Map::new();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_valid_comma_list() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": ["name", "email", "age"]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "name");
+        assert_eq!(result[1], "email");
+        assert_eq!(result[2], "age");
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_single_field() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("cols".to_string());
+        let params_value = serde_json::json!({
+            "cols": ["id"]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "id");
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_empty_array() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": []
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_missing_parameter() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params = serde_json::Map::new();
+
+        let result = resolve_returns(&returns_spec, &params);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        if let Some(janken_err) = err.downcast_ref::<JankenError>() {
+            let data = crate::get_error_data(janken_err);
+            let param_name = crate::error_meta(data, "parameter_name").unwrap();
+            assert_eq!(param_name, "fields");
+        } else {
+            panic!("Expected JankenError for missing parameter");
+        }
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_non_array_string() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": "name,email"
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        if let Some(janken_err) = err.downcast_ref::<JankenError>() {
+            let data = crate::get_error_data(janken_err);
+            let expected = crate::error_meta(data, crate::M_EXPECTED).unwrap();
+            assert!(expected.contains("array for comma_list parameter"));
+        } else {
+            panic!("Expected JankenError for type mismatch");
+        }
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_non_array_number() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": 42
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        if let Some(janken_err) = err.downcast_ref::<JankenError>() {
+            let data = crate::get_error_data(janken_err);
+            let expected = crate::error_meta(data, crate::M_EXPECTED).unwrap();
+            assert!(expected.contains("array for comma_list parameter"));
+        } else {
+            panic!("Expected JankenError for type mismatch");
+        }
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_non_array_object() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": {"name": "value"}
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        if let Some(janken_err) = err.downcast_ref::<JankenError>() {
+            let data = crate::get_error_data(janken_err);
+            let expected = crate::error_meta(data, crate::M_EXPECTED).unwrap();
+            assert!(expected.contains("array for comma_list parameter"));
+        } else {
+            panic!("Expected JankenError for type mismatch");
+        }
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_array_with_non_string_values() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": ["name", 123, true, null, "email"]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "name");
+        assert_eq!(result[1], "email");
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_array_all_non_string_values() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": [123, true, null, {"key": "value"}]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_order_preserved() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("columns".to_string());
+        let params_value = serde_json::json!({
+            "columns": ["age", "email", "name", "id"]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], "age");
+        assert_eq!(result[1], "email");
+        assert_eq!(result[2], "name");
+        assert_eq!(result[3], "id");
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_duplicate_fields() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": ["name", "name", "email", "name"]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], "name");
+        assert_eq!(result[1], "name");
+        assert_eq!(result[2], "email");
+        assert_eq!(result[3], "name");
+    }
+
+    #[test]
+    fn test_resolve_returns_static_special_characters() {
+        let returns_spec = crate::query::ReturnsSpec::Static(vec![
+            "user_id".to_string(),
+            "first-name".to_string(),
+            "email.address".to_string(),
+        ]);
+        let params = serde_json::Map::new();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "user_id");
+        assert_eq!(result[1], "first-name");
+        assert_eq!(result[2], "email.address");
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_special_characters() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": ["user_id", "first-name", "email.address"]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "user_id");
+        assert_eq!(result[1], "first-name");
+        assert_eq!(result[2], "email.address");
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_empty_strings() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": ["name", "", "email", ""]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], "name");
+        assert_eq!(result[1], "");
+        assert_eq!(result[2], "email");
+        assert_eq!(result[3], "");
+    }
+
+    #[test]
+    fn test_resolve_returns_static_unicode_field_names() {
+        let returns_spec = crate::query::ReturnsSpec::Static(vec![
+            "名前".to_string(),
+            "メール".to_string(),
+            "年齢".to_string(),
+        ]);
+        let params = serde_json::Map::new();
+
+        let result = resolve_returns(&returns_spec, &params).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "名前");
+        assert_eq!(result[1], "メール");
+        assert_eq!(result[2], "年齢");
+    }
+
+    #[test]
+    fn test_resolve_returns_dynamic_unicode_field_names() {
+        let returns_spec = crate::query::ReturnsSpec::Dynamic("fields".to_string());
+        let params_value = serde_json::json!({
+            "fields": ["名前", "メール", "年齢"]
+        });
+        let params = params_value.as_object().unwrap();
+
+        let result = resolve_returns(&returns_spec, params).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "名前");
+        assert_eq!(result[1], "メール");
+        assert_eq!(result[2], "年齢");
     }
 }
