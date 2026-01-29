@@ -136,3 +136,67 @@ All tests passing (21/21 comma list tests + all existing tests).
 - Parameter in args with non-object value → ✗ Error (e.g., `["name"]`, `"string"`, `42`)
 
 This ensures consistent, type-safe parameter definitions across the codebase.
+
+## Post-Implementation Improvements (2026-01-29)
+
+### EnumIf Support for CommaList
+10. **src/parameter_constraints.rs** - Added enumif support for comma_list parameters
+   - CommaList (`~[param]`) now supports `enumif` conditional constraints
+   - Allows field selection to depend on other parameter values (e.g., role-based field access)
+
+### DRY Constraint Validation Refactoring
+11. **src/parameter_constraints.rs** - Unified constraint validation across all parameter types
+   - Extracted three reusable helper methods:
+     - `validate_pattern(value, context)` - validates pattern constraint with context
+     - `validate_enum(value, context)` - validates enum constraint with context  
+     - `validate_enumif(value, param_name, all_params, context)` - validates enumif constraint with context
+   - Added `context` parameter to `validate_constraint_rules()` for consistent error messages
+   - Both `List` and `CommaList` now use `validate_constraint_rules()` for item validation
+   - Error messages now consistently include index context (e.g., "at index 1")
+
+### Constraint Consistency Matrix
+| Param Type      | pattern | enum | enumif | range | Implementation |
+|-----------------|---------|------|--------|-------|----------------|
+| String          | ✓       | ✓    | ✓      | -     | `validate_constraint_rules()` |
+| Integer         | -       | ✓    | ✓      | ✓     | `validate_constraint_rules()` |
+| Float           | -       | ✓    | ✓      | ✓     | `validate_constraint_rules()` |
+| TableName       | -       | ✓    | ✓      | -     | `validate_constraint_rules()` |
+| List items      | ✓       | ✓    | ✓      | ✓     | `validate_constraint_rules()` |
+| CommaList items | ✓       | ✓    | ✓      | -     | `validate_constraint_rules()` |
+
+### New Tests Added
+12. **tests/comma_list_tests.rs** - Added 6 new tests for enumif support:
+   - `test_comma_list_with_enumif_constraint` - basic enumif with comma_list
+   - `test_comma_list_with_enumif_constraint_invalid_field` - rejects unauthorized fields
+   - `test_comma_list_with_enumif_fuzzy_matching` - supports fuzzy patterns (start:, end:, contain:)
+   - `test_comma_list_with_enumif_no_matching_condition` - rejects when no condition matches
+   - `test_comma_list_with_enumif_multiple_items_validation` - validates each item with index context
+
+13. **tests/error_handling_parameter_validation_list.rs** - Updated test
+   - Fixed test expectation to handle new context format in error messages
+
+### Example: Role-Based Field Access with EnumIf
+```json
+{
+  "conditional_fields": {
+    "query": "SELECT ~[fields] FROM users WHERE id = @id",
+    "returns": ["name", "email", "age"],
+    "args": {
+      "fields": {
+        "enumif": {
+          "role": {
+            "admin": ["name", "email", "age"],
+            "user": ["name"]
+          }
+        }
+      },
+      "role": {"enum": ["admin", "user"]},
+      "id": {"type": "integer"}
+    }
+  }
+}
+```
+With runtime params: `{"fields": ["name", "email"], "role": "admin", "id": 1}`
+Admin can select all fields, user can only select name.
+
+All tests passing (28 comma_list tests + all existing tests).

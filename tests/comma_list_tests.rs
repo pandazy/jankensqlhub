@@ -728,3 +728,210 @@ fn test_comma_list_invalid_regex_pattern() {
         panic!("Expected JankenError, got: {:?}", err);
     }
 }
+
+#[test]
+fn test_comma_list_with_enumif_constraint() {
+    // Test comma_list with conditional enum (enumif) constraint
+    let mut conn = setup_db();
+
+    let json_definitions = json!({
+        "conditional_fields": {
+            "query": "SELECT ~[fields] FROM users WHERE id = @id",
+            "returns": ["name", "email", "age"],
+            "args": {
+                "fields": {
+                    "enumif": {
+                        "role": {
+                            "admin": ["name", "email", "age"],
+                            "user": ["name"]
+                        }
+                    }
+                },
+                "role": {"enum": ["admin", "user"]},
+                "id": {"type": "integer"}
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Admin can select all fields
+    let params = json!({"fields": ["name", "email"], "role": "admin", "id": 1});
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+    assert_eq!(result.data[0]["name"], "Alice");
+    assert_eq!(result.data[0]["email"], "alice@test.com");
+
+    // User can only select name
+    let params = json!({"fields": ["name"], "role": "user", "id": 1});
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+    assert_eq!(result.data[0]["name"], "Alice");
+}
+
+#[test]
+fn test_comma_list_with_enumif_constraint_invalid_field() {
+    // Test that comma_list with enumif rejects unauthorized fields
+    let json_definitions = json!({
+        "conditional_fields": {
+            "query": "SELECT ~[fields] FROM users",
+            "returns": ["name", "email"],
+            "args": {
+                "fields": {
+                    "enumif": {
+                        "role": {
+                            "admin": ["name", "email", "age"],
+                            "user": ["name"]
+                        }
+                    }
+                },
+                "role": {"enum": ["admin", "user"]}
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let mut conn = setup_db();
+
+    // User trying to select email should fail
+    let params = json!({"fields": ["name", "email"], "role": "user"});
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_fields", &params);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        assert!(
+            expected.contains("\"name\"") && expected.contains("conditional parameters"),
+            "Expected conditional parameters error with allowed values, got: {}",
+            expected
+        );
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}
+
+#[test]
+fn test_comma_list_with_enumif_fuzzy_matching() {
+    // Test comma_list with enumif fuzzy matching patterns
+    let mut conn = setup_db();
+
+    let json_definitions = json!({
+        "conditional_fields": {
+            "query": "SELECT ~[fields] FROM users WHERE id = @id",
+            "returns": ["name", "email", "age"],
+            "args": {
+                "fields": {
+                    "enumif": {
+                        "role": {
+                            "start:admin": ["name", "email", "age"],
+                            "start:user": ["name"]
+                        }
+                    }
+                },
+                "role": {"pattern": "^(admin|user)_.*$"},
+                "id": {"type": "integer"}
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // admin_super matches start:admin, can select all fields
+    let params = json!({"fields": ["name", "email"], "role": "admin_super", "id": 1});
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+
+    // user_basic matches start:user, can only select name
+    let params = json!({"fields": ["name"], "role": "user_basic", "id": 1});
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+}
+
+#[test]
+fn test_comma_list_with_enumif_no_matching_condition() {
+    // Test that comma_list with enumif rejects when no condition matches
+    let json_definitions = json!({
+        "conditional_fields": {
+            "query": "SELECT ~[fields] FROM users",
+            "returns": ["name"],
+            "args": {
+                "fields": {
+                    "enumif": {
+                        "role": {
+                            "admin": ["name", "email"],
+                            "user": ["name"]
+                        }
+                    }
+                },
+                "role": {"type": "string"}
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let mut conn = setup_db();
+
+    // guest role is not defined in enumif conditions
+    let params = json!({"fields": ["name"], "role": "guest"});
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_fields", &params);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        assert!(
+            expected.contains("conditional parameter value that matches a defined condition"),
+            "Expected no matching condition error, got: {}",
+            expected
+        );
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}
+
+#[test]
+fn test_comma_list_with_enumif_multiple_items_validation() {
+    // Test that enumif validation applies to each item in the comma_list
+    let json_definitions = json!({
+        "conditional_fields": {
+            "query": "SELECT ~[fields] FROM users",
+            "returns": ["name", "email"],
+            "args": {
+                "fields": {
+                    "enumif": {
+                        "role": {
+                            "admin": ["name", "email", "age"],
+                            "user": ["name"]
+                        }
+                    }
+                },
+                "role": {"enum": ["admin", "user"]}
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let mut conn = setup_db();
+
+    // User trying to select multiple fields (second one is invalid)
+    let params = json!({"fields": ["name", "email"], "role": "user"});
+    let result = query_run_sqlite(&mut conn, &queries, "conditional_fields", &params);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        // Should include index information
+        assert!(
+            expected.contains("at index 1"),
+            "Expected error to mention index 1, got: {}",
+            expected
+        );
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}

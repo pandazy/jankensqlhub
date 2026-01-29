@@ -99,10 +99,10 @@ Strengthened validation for parameter definitions in the `args` object:
 
 ## 🧪 **Testing**
 
-All 165+ tests passing:
+All 172 tests passing:
 - ✅ 21 comma list parameter tests
 - ✅ 13 dynamic returns tests  
-- ✅ 47 unit tests for resolve_returns and parameter handling
+- ✅ 48 unit tests for resolve_returns and parameter handling
 - ✅ Complete coverage for returns mapping
 - ✅ All SQLite and PostgreSQL integration tests
 

@@ -279,9 +279,10 @@ fn test_list_parameter_enumif_validation_errors() {
             expected,
             "conditional parameter value that matches a defined condition"
         );
-        assert_eq!(
-            got,
-            "value not covered by any enumif condition for parameter severities"
+        assert!(
+            got.contains("value not covered by any enumif condition for parameter severities"),
+            "got: {}",
+            got
         );
     } else {
         panic!("Expected ParameterTypeMismatch for undefined condition, got: {err_str}");
