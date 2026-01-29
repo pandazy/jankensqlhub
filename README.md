@@ -1,74 +1,81 @@
 # Janken SQL Hub - Database Query Management Library
 
-A high-performance, modular Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (SQLite and PostgreSQL).
+A Rust library for parameterizable SQL query management that prevents SQL injection through prepared statements and supports multiple database backends (SQLite and PostgreSQL).
+
+## Table of Contents
+
+- [Overview](#-overview)
+- [Quick Start](#-quick-start)
+- [Parameter Syntax Reference](#-parameter-syntax-reference)
+- [Usage Guide](#-usage-guide)
+- [Advanced Features](#-advanced-features)
+- [Error Handling](#-error-handling)
+- [PostgreSQL Support](#-postgresql-support)
+- [Installation](#-installation)
+- [Architecture](#architecture)
+- [Acknowledgments](#-acknowledgments)
+
+---
 
 ## 🎯 Overview
 
 **Janken SQL Hub** enables developers to define SQL queries with parameters in a database-agnostic way, automatically generating prepared statements for different database backends while preventing SQL injection attacks.
 
+### Why JSON-Configured Queries?
+
+Common CRUD operations often become scattered across codebases, mixed with business logic, making them hard to audit and maintain. **Janken SQL Hub** solves this by:
+
+- **Centralizing query definitions** - All SQL in portable JSON files, not buried in code
+- **Co-locating SQL with constraints** - Query logic and validation rules live together
+- **Enabling easy auditing** - Review all database operations in one place
+- **Simplifying maintenance** - Update queries without touching application code
+
+```json
+{
+  "update_user_status": {
+    "query": "UPDATE users SET status=@status WHERE id=@user_id",
+    "args": {
+      "user_id": {"type": "integer"},
+      "status": {"enum": ["active", "inactive", "suspended"]}
+    }
+  }
+}
+```
+*SQL and its constraints are cohesive, clear, and reviewable.*
+
+### Non-Invasive Design
+
+**Janken SQL Hub** is a focused utility, not a framework:
+
+- **No coding restrictions** - Use it for what it's good at, use something else for the rest
+- **Coexists with existing code** - Works alongside raw SQL, ORMs, or any other database access pattern
+- **Simple utility functions** - `query_run_sqlite()` and `query_run_postgresql()` wrap your existing connections
+- **Gradual adoption** - Start with a few queries, expand as needed
+
+```rust
+// JankenSQLHub handles configured queries
+let result = query_run_sqlite(&mut conn, &queries, "get_user", &params)?;
+
+// Your existing code continues to work unchanged
+conn.execute("DROP TABLE temp_data", [])?;
+```
+
 ### Core Capabilities
-- ✅ **Parameterizable SQL Templates** - `@param_name` syntax in queries, types defined separately
-- ✅ **Dynamic Identifiers** - `#[identifier]` syntax for parameterizable table/column names and other SQL identifiers
-- ✅ **List Parameter Support** - :[list_param] syntax for IN clauses with item type validation
-- ✅ **Web API Integration** - Server-side query adapter mapping JSON requests to prepared statements
-- ✅ **SQL Injection Protection** - Automatic prepared statement generation
-- ✅ **Type Safety & Validation** - Parameter type validation with constraints (range, pattern, enum, table name validation)
-- ✅ **Parameter Constraints** - Range limits, regex patterns, enumerated values, and table name validation
+
+| Capability | Description |
+|------------|-------------|
+| **Parameterizable SQL** | `@param_name` syntax with automatic prepared statement generation |
+| **Dynamic Identifiers** | `#[identifier]` syntax for safe table/column names |
+| **List Parameters** | `:[list_param]` syntax for IN clauses |
+| **Comma Lists** | `~[param]` syntax for comma-separated field lists |
+| **Type Safety** | Parameter validation with constraints (range, pattern, enum) |
+| **Multi-Backend** | SQLite and PostgreSQL support with identical API |
+
+---
 
 ## 🚀 Quick Start
 
-**Janken SQL Hub** enables developers to define SQL queries with parameters in a database-agnostic way, automatically generating prepared statements for different database backends while preventing SQL injection attacks.
-
-## ✨ Key Features
-
-### Parameter Syntax
-```sql
--- Basic parameter syntax - @param_name parameters default to string type (can be overridden)
-SELECT * FROM users WHERE id=@user_id AND name=@user_name
-
--- Dynamic identifier parameters - #[xxx] syntax for table names, column names, etc. (always table_name type)
-SELECT * FROM #[table_name] WHERE id=@user_id
-SELECT #[column_name] FROM users ORDER BY #[column_name]
-
--- List parameters for IN clauses - always list type with item type validation
-SELECT * FROM users WHERE id IN :[user_ids] AND status IN :[statuses]
-
--- Comma list parameters - ~[param] syntax for comma-separated values (always comma_list type)
-SELECT ~[fields] FROM users WHERE status='active'
--- With runtime params {"fields": ["name", "email", "age"]} becomes: SELECT name,email,age FROM users WHERE status='active'
-
--- Parameters in quoted strings (treated as literals)
-SELECT * FROM users WHERE name='@literal_text'
-```
-
-### Architecture Design Principles
-
-**Janken SQL Hub** serves as a **server-side query adapter**, bridging the gap between web API endpoints and database operations:
-
-- **QueryDef**: Pre-defined, validated SQL queries stored on the server
-- **query_run_sqlite() / query_run_postgresql()**: Database-specific query runners that map JSON parameters to prepared statements
-- **Security First**: Query templates prevent SQL injection while retaining SQL's efficiency
-- **No ORM Abstraction**: Direct SQL usage avoids inefficient query builders and ORMs
-
-```rust
-// Web API Workflow:
-// 1. Client sends JSON payload: {"user_id": 123}
-// 2. Server uses query_name (not SQL) to identify predefined query
-// 3. Parameters are validated and injected into prepared statement
-// 4. Result returned as JSON
-
-let params = serde_json::json!({"user_id": 123});
-let result = query_run_sqlite(&mut conn, &queries, "find_user", &params)?;
-```
-
-## 🚀 Usage Guide
-
-### 1. Define Queries (JSON Configuration)
-
-Each query definition contains:
-- `"query"`: Required - The SQL statement with `@parameter` (`#[table_name]`) placeholders
-- `"args"`: Optional - only needed to override default types or add constraints
-- `"returns"`: Optional - Array of column names for SELECT queries (determines JSON response structure)
+### 1. Define a Query (JSON)
 
 ```json
 {
@@ -78,177 +85,196 @@ Each query definition contains:
     "args": {
       "user_id": {"type": "integer"}
     }
-  },
-  "create_user": {
-    "query": "INSERT INTO users (name, email) VALUES (@name, @email)",
-    "args": {
-      "name": {"type": "string"},
-      "email": {"type": "string"}
-    }
-  },
+  }
+}
+```
+
+### 2. Execute the Query (Rust)
+
+```rust
+use janken_sql_hub::{QueryDefinitions, query_run_sqlite};
+use rusqlite::Connection;
+
+// Load queries and connect to database
+let queries = QueryDefinitions::from_file("queries.json")?;
+let mut conn = Connection::open("mydb.sqlite")?;
+
+// Execute with JSON parameters
+let params = serde_json::json!({"user_id": 42});
+let result = query_run_sqlite(&mut conn, &queries, "get_user", &params)?;
+// result.data contains the JSON response
+```
+
+That's it! The library handles prepared statements and SQL injection prevention automatically.
+
+---
+
+## 📖 Parameter Syntax Reference
+
+| Syntax | Type | Description | Example |
+|--------|------|-------------|---------|
+| `@param` | string (default) | Basic parameter placeholder | `WHERE name=@user_name` |
+| `@param` | any type | Override type in args | `"user_id": {"type": "integer"}` |
+| `#[param]` | table_name | Dynamic identifier (validated) | `SELECT * FROM #[table_name]` |
+| `:[param]` | list | Array for IN clauses | `WHERE id IN :[user_ids]` |
+| `~[param]` | comma_list | Comma-separated values | `SELECT ~[fields] FROM users` |
+
+### Quick Examples
+
+```sql
+-- Basic parameters (default to string, can override type)
+SELECT * FROM users WHERE id=@user_id AND name=@user_name
+
+-- Dynamic table/column names (always validated against enum)
+SELECT * FROM #[table_name] WHERE id=@user_id
+
+-- List parameters for IN clauses
+SELECT * FROM users WHERE id IN :[user_ids]
+
+-- Comma list for dynamic field selection
+SELECT ~[fields] FROM users WHERE status='active'
+-- With {"fields": ["name", "email"]} becomes: SELECT name,email FROM users
+```
+
+---
+
+## 📚 Usage Guide
+
+### Query Definition Structure
+
+Each query definition supports these fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `query` | ✅ | SQL statement with parameter placeholders |
+| `returns` | Optional | Column names for SELECT queries (JSON response structure) |
+| `args` | Optional | Parameter type overrides and constraints |
+
+### Basic Examples
+
+**SELECT with parameters:**
+```json
+{
   "search_users": {
-    "query": "SELECT id, name FROM users WHERE age > @min_age AND age < @max_age",
+    "query": "SELECT id, name FROM users WHERE age > @min_age",
     "returns": ["id", "name"],
     "args": {
-      "min_age": {"type": "integer"},
-      "max_age": {"type": "integer"}
+      "min_age": {"type": "integer"}
     }
-  },
-  "get_user_by_status": {
-    "query": "SELECT * FROM users WHERE status=@status",
-    "returns": ["id", "name", "email", "status"],
-    "args": {
-      "status": {
-        "type": "string",
-        "enum": ["active", "inactive", "pending"]
-      }
-    }
-  },
-  "get_user_by_email": {
-    "query": "SELECT * FROM users WHERE email LIKE @pattern",
-    "returns": ["id", "name", "email"],
-    "args": {
-      "pattern": {
-        "type": "string",
-        "pattern": "\\S+@\\S+\\.\\S+"
-      }
-    }
-  },
-  "select_fields": {
-    "query": "SELECT ~[fields] FROM users WHERE status='active'",
-    "returns": ["name", "email", "age"],
-    "args": {
-      "fields": {"enum": ["name", "email", "age"]}
-    }
-  },
-  "dynamic_select_fields": {
-    "query": "SELECT ~[fields] FROM users WHERE status='active'",
-    "returns": "~[fields]",
-    "args": {
-      "fields": {"enum": ["name", "email", "age"]}
-    }
-  },
+  }
+}
+```
+
+**INSERT:**
+```json
+{
+  "create_user": {
+    "query": "INSERT INTO users (name, email) VALUES (@name, @email)"
+  }
+}
+```
+*Note: `@name` and `@email` default to string type, so args can be omitted.*
+
+**Dynamic table:**
+```json
+{
   "query_from_table": {
-    "query": "SELECT * FROM #[source] WHERE id=@id AND name=@name",
+    "query": "SELECT * FROM #[source] WHERE id=@id",
     "returns": ["id", "name"],
     "args": {
-      "id": {"type": "integer"},
-      "name": {"type": "string"},
-      "source": {"enum": ["source"]}
+      "source": {"enum": ["users", "accounts"]},
+      "id": {"type": "integer"}
     }
-  },
-  "insert_into_dynamic_table": {
-    "query": "INSERT INTO #[dest_table] (name) VALUES (@name)",
-    "args": {
-      "dest_table": {"enum": ["accounts", "users"]},
-      "name": {"type": "string"}
-    }
-  },
+  }
+}
+```
+
+**List parameter (IN clause):**
+```json
+{
   "get_users_by_ids": {
     "query": "SELECT id, name FROM users WHERE id IN :[user_ids]",
     "returns": ["id", "name"],
     "args": {
       "user_ids": {"itemtype": "integer"}
     }
-  },
-  "select_column": {
-    "query": "SELECT #[column_name] FROM #[table_name] ORDER BY #[column_name]",
-    "returns": ["column_value"],
-    "args": {
-      "column_name": {"enum": ["id", "name", "score"]},
-      "table_name": {"enum": ["users", "accounts"]}
-    }
-  },
-  "store_file": {
-    "query": "INSERT INTO files (name, data, size) VALUES (@name, @data, @size)",
-    "args": {
-      "name": {"type": "string"},
-      "data": {"type": "blob", "range": [1, 1048576]},  // 1 byte to 1MB
-      "size": {"type": "integer"}
-    }
   }
 }
 ```
 
-### 2. Load Queries
+### Executing Queries
+
 ```rust
 use janken_sql_hub::{QueryDefinitions, query_run_sqlite};
 use rusqlite::Connection;
 
-// Load from JSON file
 let queries = QueryDefinitions::from_file("queries.json")?;
-
-// Or load from JSON object
-let json = serde_json::json!({...});
-let queries = QueryDefinitions::from_json(json)?;
-```
-
-### 3. Execute Queries
-```rust
-// Setup SQLite connection
 let mut conn = Connection::open_in_memory()?;
 
-// Get user by ID (returns QueryResult with JSON data and SQL execution details)
+// Basic parameter
 let params = serde_json::json!({"user_id": 42});
-let query_result = query_run_sqlite(&mut conn, &queries, "get_user", &params)?;
-// Access JSON results: query_result.data
-// Access executed SQL statements: query_result.sql_statements (for debugging)
+let result = query_run_sqlite(&mut conn, &queries, "get_user", &params)?;
 
-// Create new user
-let params = serde_json::json!({"name": "Alice", "email": "alice@example.com"});
-let query_result = query_run_sqlite(&mut conn, &queries, "create_user", &params)?;
+// Dynamic table
+let params = serde_json::json!({"source": "accounts", "id": 1});
+let result = query_run_sqlite(&mut conn, &queries, "query_from_table", &params)?;
 
-// Query from dynamic table
-let params = serde_json::json!({"source": "accounts", "id": 1, "name": "John"});
-let query_result = query_run_sqlite(&mut conn, &queries, "query_from_table", &params)?;
-
-// Insert into dynamic table
-let params = serde_json::json!({"dest_table": "users", "name": "Bob"});
-let query_result = query_run_sqlite(&mut conn, &queries, "insert_into_dynamic_table", &params)?;
+// List parameter
+let params = serde_json::json!({"user_ids": [1, 2, 3, 4, 5]});
+let result = query_run_sqlite(&mut conn, &queries, "get_users_by_ids", &params)?;
 ```
 
-### 4. Important Usage Notes
+### Important: Null Values Not Supported
 
-**JSON null values are not supported in requests and will be rejected.** All parameter values must be non-null JSON values (strings, numbers, booleans, arrays, objects).
+**JSON null values are rejected.** All parameter values must be non-null (strings, numbers, booleans, arrays, objects).
 
-*Despite the convenience null might provide, it acts as a super-passport that circumvents type validation - it implicitly "matches" almost all data types when explicit "required" validation isn't specified. This leads to weaker type safety and potential security issues, so JankenSQLHub rejects null values upfront to maintain strict type validation.*
+*Rationale: null acts as a super-passport that circumvents type validation, leading to weaker type safety and potential security issues.*
 
-### 5. Parameter Types and Constraints Supported
+---
 
-**Automatic Type Assignment:**
-- `@param` parameters: Default to "string" type (can be overridden)
-- `#[table_name]` parameters: Automatically assigned "table_name" type
-- `:[list_param]` parameters: Automatically assigned "list" type
+## ⚙️ Advanced Features
 
-```rust
-// User-specified parameter types (all case-insensitive)
-"integer", "string", "float", "boolean", "blob"
+### Parameter Types and Constraints
 
-// Automatically assigned parameter types (cannot be overridden)
-"table_name"  // Assigned to parameters using #[table] syntax
-"list"        // Assigned to parameters using :[list] syntax
-"comma_list"  // Assigned to parameters using ~[param] syntax
+**Supported Types:**
 
-// Constraint types
-"range": [min, max]     // For numeric types (integer/float) and blob sizes
-"pattern": "regex"      // For string types (e.g., email validation)
-"enum": [value1, ...]   // For any type (allowed values). Table names support enum only.
-"enumif": {...}         // For conditional enum constraints based on other parameters
-"itemtype": "type"      // For list types: specifies the type of each item in the list
+| Type | Description | Constraint Options |
+|------|-------------|-------------------|
+| `string` | Text (default for `@param`) | `pattern`, `enum` |
+| `integer` | Whole numbers | `range`, `enum` |
+| `float` | Decimal numbers | `range`, `enum` |
+| `boolean` | true/false | `enum` |
+| `blob` | Binary data | `range` (size limits) |
+| `table_name` | Auto-assigned to `#[param]` | `enum` (required) |
+| `list` | Auto-assigned to `:[param]` | `itemtype` |
+| `comma_list` | Auto-assigned to `~[param]` | `enum` |
 
-// Examples in args object
-"id": {"type": "integer"}                                                 // Basic integer (overridden from default string)
-"balance": {"type": "float", "range": [0.0, 1000000.0]}                   // Float with range
-"status": {"enum": ["active", "inactive", "pending"]}  // String enum
-"email": { "pattern": "\\S+@\\S+\\.\\S+"}                                // String with regex
-"user_ids": {"itemtype": "integer"}                                     // List of integers for IN clauses
-"names": {"type": "boolean"}                                              // Explicit string type (same as default)
-"source": {"enum": ["users", "accounts"]}                               // Table name enum (table_name type auto-assigned)
-"tags": {                                                               // Conditional enum based on media_type
-  "enumif": {
-    "media_type": {
-      "song": ["artist", "album", "title"],
-      "show": ["channel", "category", "episodes"]
+**Constraint Examples:**
+
+```json
+{
+  "args": {
+    "age": {"type": "integer", "range": [0, 150]},
+    "email": {"pattern": "\\S+@\\S+\\.\\S+"},
+    "status": {"enum": ["active", "inactive", "pending"]},
+    "data": {"type": "blob", "range": [1, 1048576]},
+    "user_ids": {"itemtype": "integer"},
+    "table": {"enum": ["users", "accounts"]}
+  }
+}
+```
+
+### Dynamic Returns
+
+Map return columns dynamically using the same comma_list parameter:
+
+```json
+{
+  "dynamic_select": {
+    "query": "SELECT ~[fields] FROM users",
+    "returns": "~[fields]",
+    "args": {
+      "fields": {"enum": ["name", "email", "age"]}
     }
   }
 }
@@ -256,59 +282,36 @@ let query_result = query_run_sqlite(&mut conn, &queries, "insert_into_dynamic_ta
 
 ### Conditional Enum Constraints (`enumif`)
 
-The `enumif` constraint allows parameter validation based on the values of other parameters, enabling conditional enums. The conditional parameter (the one referenced in `enumif`) can be any primitive type (string, number, boolean) - not just enum values.
+Validate parameter values based on other parameters:
 
-**Structure:**
 ```json
 {
-  "parameter_with_enumif": {
-    "enumif": {
-      "conditional_parameter": {
-        "conditional_value1": ["allowed", "values", "for", "this", "condition"],
-        "conditional_value2": ["different", "allowed", "values", "here"]
+  "args": {
+    "media_source": {
+      "enumif": {
+        "media_type": {
+          "song": ["artist", "album"],
+          "show": ["channel", "episodes"]
+        }
       }
     }
   }
 }
 ```
 
+With `media_type: "song"`, `media_source` must be "artist" or "album".
+
 **Fuzzy Matching Patterns:**
 
-Condition keys support both exact matches and fuzzy matching patterns:
-- **Exact match**: `"value"` - matches the value exactly
-- **Start pattern**: `"start:prefix"` - matches values starting with the pattern (e.g., `"start:admin"` matches `"admin_user"`, `"admin_super"`)
-- **End pattern**: `"end:suffix"` - matches values ending with the pattern (e.g., `"end:txt"` matches `"document.txt"`, `"readme.txt"`)
-- **Contain pattern**: `"contain:substring"` - matches values containing the pattern (e.g., `"contain:error"` matches `"error_log"`, `"system_error"`)
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| `"value"` | Exact match | `"admin"` matches only "admin" |
+| `"start:prefix"` | Starts with | `"start:admin"` matches "admin_user" |
+| `"end:suffix"` | Ends with | `"end:txt"` matches "readme.txt" |
+| `"contain:str"` | Contains | `"contain:error"` matches "system_error" |
 
-Note: Fuzzy match patterns must be alphanumeric with underscores only. Exact matches allow any string value.
-
-**Validation Logic:**
-1. The conditional parameter value must match one of the defined conditions (exact or fuzzy)
-2. If multiple conditional parameters are specified, they're evaluated alphabetically by parameter name
-3. Condition keys within each conditional parameter are also evaluated alphabetically
-4. **Conflict Resolution**: When multiple patterns could match the same value (e.g., `"contain:test"` and `"start:test"` both matching `"test123"`), the first match in alphabetical order is used. In this example, `"contain:test"` would be selected since 'c' comes before 's' alphabetically.
-5. The first matching condition (alphabetically) determines the allowed values
-6. Parameter values must be in the allowed array for the matching condition
-
-**Examples:**
 ```json
 {
-  "media_source": {
-    "enumif": {
-      "media_type": {
-        "song": ["artist", "album"],
-        "show": ["channel", "episodes"]
-      }
-    }
-  },
-  "priority_level": {
-    "enumif": {
-      "severity": {
-        "high": ["urgent", "immediate"],
-        "low": ["optional"]
-      }
-    }
-  },
   "permission": {
     "enumif": {
       "role": {
@@ -317,150 +320,109 @@ Note: Fuzzy match patterns must be alphanumeric with underscores only. Exact mat
         "contain:guest": ["read_public"]
       }
     }
-  },
-  "action": {
-    "enumif": {
-      "filename": {
-        "end:txt": ["read_text", "edit_text"],
-        "end:jpg": ["view_image", "resize_image"]
-      }
-    }
   }
 }
 ```
 
-## 🛡️ Flexible Error Handling
+*Note: When multiple patterns could match, the first alphabetically is used.*
 
-**Janken SQL Hub** provides structured error handling with unique error codes and JSON metadata for better debugging and customization. Each error includes:
+---
 
-- **Unique Error Code**: u16 identifier for programmatic error identification
-- **Structured Metadata**: JSON string containing relevant contextual error details
-- **Helper Functions**: Extract metadata fields without parsing JSON
-- **Error Information**: Look up comprehensive error descriptions by code
+## 🛡️ Error Handling
 
-### Programmatic Error Handling
+JankenSQLHub provides structured errors with unique codes and JSON metadata.
+
+### Basic Usage
+
 ```rust
-use jankensqlhub::{JankenError, error_meta, get_error_data, get_error_info, M_EXPECTED, M_GOT, M_PARAM_NAME, M_QUERY_NAME};
-use std::error::Error;
+use jankensqlhub::{JankenError, get_error_data, get_error_info};
 
-// Check if this is a structured JankenError (for query/parameter validation issues)
 if let Some(janken_err) = error.downcast_ref::<JankenError>() {
-    // Extract error data from the JankenError variant
     let data = get_error_data(janken_err);
-
-    // Look up comprehensive error information
+    
     if let Some(info) = get_error_info(data.code) {
         eprintln!("{} ({}) - {}", info.name, data.code, info.description);
     }
-
-    // Handle specific JankenError variants
-    match janken_err {
-        JankenError::ParameterTypeMismatch { .. } => {
-            let expected = error_meta(data, M_EXPECTED)?;
-            let got = error_meta(data, M_GOT)?;
-            eprintln!("Type mismatch: expected {}, got {}", expected, got);
-        }
-        JankenError::ParameterNotProvided { .. } => {
-            let param_name = error_meta(data, M_PARAM_NAME)?;
-            eprintln!("Missing required parameter: {}", param_name);
-        }
-        JankenError::QueryNotFound { .. } => {
-            let query_name = error_meta(data, M_QUERY_NAME)?;
-            eprintln!("Query not found: {}", query_name);
-        }
-    }
-} else {
-    // Handle other errors (IO, JSON parsing, database connection issues, etc. from anyhow)
-    eprintln!("Error: {}", error);
 }
 ```
 
 ### Error Code Reference
-| Code | Error Type | Category | Description |
-|------|------------|----------|-------------|
-| 2000 | QUERY_NOT_FOUND | Query | Requested query definition was not found |
-| 2010 | PARAMETER_NOT_PROVIDED | Parameter | Required parameter was not provided |
-| 2020 | PARAMETER_TYPE_MISMATCH | Parameter | Parameter value does not match expected type |
-| 2030 | PARAMETER_NAME_CONFLICT | Parameter | Parameter name conflicts with table name |
 
-### Example Error Metadata
-- **Parameter Type Mismatch**: `{"expected": "integer", "got": "\"not_int\""}`
-- **Query Not Found**: `{"query_name": "find_user_by_id"}`
-- **Parameter Not Provided**: `{"parameter_name": "user_id"}`
-- **Parameter Name Conflict**: `{"conflicting_name": "users"}`
+| Code | Error Type | Description |
+|------|------------|-------------|
+| 2000 | QUERY_NOT_FOUND | Query definition not found |
+| 2010 | PARAMETER_NOT_PROVIDED | Required parameter missing |
+| 2020 | PARAMETER_TYPE_MISMATCH | Value doesn't match expected type |
+| 2030 | PARAMETER_NAME_CONFLICT | Parameter name conflicts with table name |
 
-## ⚡ Performance Characteristics
+### Extracting Metadata
 
-- **Regex Compilation**: One-time lazy static initialization
-- **Parameter Parsing**: O(n) where n = SQL length
-- **Query Execution**: Database-dependent (SQLite ~2-3x slower prepared vs raw, PostgreSQL similar)
-- **Memory Usage**: Minimal (regex + parameter vectors)
-- **Zero-Copy**: Parameter values passed by reference where possible
+```rust
+use jankensqlhub::{error_meta, M_EXPECTED, M_GOT, M_PARAM_NAME, M_QUERY_NAME};
 
-## 🧪 Quality Assurance
+match janken_err {
+    JankenError::ParameterTypeMismatch { .. } => {
+        let expected = error_meta(data, M_EXPECTED)?;
+        let got = error_meta(data, M_GOT)?;
+        eprintln!("Type mismatch: expected {}, got {}", expected, got);
+    }
+    JankenError::ParameterNotProvided { .. } => {
+        let param_name = error_meta(data, M_PARAM_NAME)?;
+        eprintln!("Missing parameter: {}", param_name);
+    }
+    _ => {}
+}
+```
 
-- **Test Coverage**: 100% coverage
-- **Zero Warnings**: Clean clippy warnings
-- **Memory Safety**: Rust ownership system guarantees
-- **Type Safety**: Compile-time parameter validation
-- **SQL Injection**: Automatic prepared statements prevent attacks
-
-## 📈 Roadmap
-
-### Planned Enhancements
-- [ ] TBD
-
-### Database Backend Priorities
-1. ✅ SQLite (complete)
-2. ✅ PostgreSQL (complete)
+---
 
 ## 🐘 PostgreSQL Support
 
-**JankenSQLHub** provides production-ready PostgreSQL support alongside SQLite. Both backends share the same API and parameter syntax, ensuring consistent behavior across database systems.
+PostgreSQL support shares the same API with async execution:
 
 ```rust
 use jankensqlhub::{QueryDefinitions, query_run_postgresql};
 use tokio_postgres::NoTls;
 
-// Setup PostgreSQL connection
+// Setup connection
 let (client, connection) = tokio_postgres::connect(&connection_string, NoTls).await?;
-tokio::spawn(async move { if let Err(e) = connection.await { eprintln!("connection error: {}", e); } });
+tokio::spawn(async move { 
+    if let Err(e) = connection.await { 
+        eprintln!("connection error: {}", e); 
+    } 
+});
 
-// Execute queries with PostgreSQL
+// Execute queries (same API as SQLite)
 let params = serde_json::json!({"user_id": 42});
 let result = query_run_postgresql(&mut client, &queries, "get_user", &params).await?;
 ```
 
-### Key Features
-- **Async Execution**: Leverages tokio-postgres for high-performance async operations
-- **ACID Transactions**: All query execution wrapped in transactions with automatic rollback on failure
-- **Prepared Statements**: Automatic conversion to PostgreSQL `$1, $2, ...` parameter format
-- **Type Safety**: Full type mapping between JSON and PostgreSQL data types including JSON/JSONB columns
-- **JSON/JSONB Support**: Direct query of PostgreSQL JSON and JSONB column types with automatic serde_json conversion
-- **Integration Tests**: Comprehensive test suite covering all features
+### PostgreSQL Features
 
-See the [operational guide](op.md) for testing setup and development instructions.
+- **Async Execution**: Leverages tokio-postgres for high-performance operations
+- **ACID Transactions**: Automatic transaction wrapping with rollback on failure
+- **Prepared Statements**: Auto-conversion to `$1, $2, ...` format
+- **JSON/JSONB Support**: Direct querying with automatic serde_json conversion
 
-## 📦 Installation & Links
+See the [operational guide](op.md) for testing setup.
 
-**Install from Crates.io:**
+---
+
+## 📦 Installation
+
 ```bash
 cargo add jankensqlhub
 ```
 
 ### Feature Flags
 
-JankenSQLHub supports feature flags to include only the database backends you need:
+| Flag | Description |
+|------|-------------|
+| `all` (default) | Both SQLite and PostgreSQL |
+| `sqlite` | SQLite only |
+| `postgresql` | PostgreSQL only |
 
-- **`all`** (default): Enable both SQLite and PostgreSQL support
-- **`sqlite`**: Enable only SQLite support
-- **`postgresql`**: Enable only PostgreSQL support
-
-**Examples:**
 ```bash
-# Default (both SQLite and PostgreSQL)
-cargo add jankensqlhub
-
 # SQLite only
 cargo add jankensqlhub --features sqlite
 
@@ -468,10 +430,31 @@ cargo add jankensqlhub --features sqlite
 cargo add jankensqlhub --features postgresql
 ```
 
-**Links:**
+### Links
+
 - [📦 Crates.io](https://crates.io/crates/jankensqlhub)
 - [📚 Documentation](https://docs.rs/jankensqlhub)
 - [🏠 Repository](https://github.com/pandazy/jankensqlhub)
+
+---
+
+## Architecture
+
+**Janken SQL Hub** serves as a **server-side query adapter**, bridging web API endpoints and database operations:
+
+```
+Client JSON → QueryDef (predefined) → Prepared Statement → Database → JSON Response
+```
+
+- **No ORM**: Direct SQL usage avoids query builder overhead
+- **Security First**: Query templates prevent SQL injection
+- **Type Safety**: Compile-time parameter validation
+
+---
+
+## 🙏 Acknowledgments
+
+This project was developed with significant assistance from [Cline](https://cline.bot/) - an autonomous AI coding agent for VS Code that handles complex software engineering tasks.
 
 ---
 

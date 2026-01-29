@@ -60,12 +60,12 @@ After running tests to verify functionality, always execute:
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
 | **`parameter_constraints.rs`** | Parameter constraint validation and parsing, including enum and enumif constraints | `parse_constraints()`, `ParameterConstraints::validate()` |
-| **`parameters.rs`** | SQL parameter handling including #[table] names and list parameters | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
+| **`parameters.rs`** | SQL parameter handling including #[table] names, list parameters, and comma_list parameters | `parse_parameters_with_quotes()`, `contains_transaction_keywords()` |
 | **`query/`** | Query definition creation with parameter defaults, #[table] names, and list parameters | `QueryDef::from_sql()`, `QueryDefinitions::from_file/json()`, `create_augmented_args()` |
 | **`runner_postgresql.rs`** | PostgreSQL execution mechanics with dynamic #[table] and list parameter support | `query_run_postgresql()`, `execute_query_unified()`, `map_rows_to_json_data()` |
-| **`runner_sqlite.rs`** | SQLite-specific query execution mechanics with dynamic #[table] and list parameter support | `query_run_sqlite()` |
+| **`runner_sqlite.rs`** | SQLite-specific query execution mechanics with dynamic #[table] and list parameter support | `query_run_sqlite()`, `execute_query_unified()` |
 | **`str_utils.rs`** | SQL parsing utilities | `is_in_quotes()`, `split_sql_statements()` |
-| **`result.rs`** | Query result structures with debug output and error types | `QueryResult`, `JankenError` enum |
+| **`result.rs`** | Query result structures with debug output and error types | `QueryResult`, `JankenError` enum, `get_error_data()`, `get_error_info()`, `error_meta()` |
 | **`lib.rs`** | API orchestration | Public re-exports, module coordination |
 
 ## Task Management
