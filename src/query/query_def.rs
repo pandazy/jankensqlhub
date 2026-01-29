@@ -58,8 +58,12 @@ impl QueryDef {
         };
 
         // For each parameter that doesn't have an arg definition, add default string type
-        // Skip parameters that are not String type (i.e., TableName, List are auto-detected)
-        let skip_types = [ParameterType::TableName, ParameterType::List];
+        // Skip parameters that are not String type (i.e., TableName, List, CommaList are auto-detected)
+        let skip_types = [
+            ParameterType::TableName,
+            ParameterType::List,
+            ParameterType::CommaList,
+        ];
         for param in parameters {
             if !skip_types.contains(&param.param_type) && !augmented_args.contains_key(&param.name)
             {
@@ -75,7 +79,10 @@ impl QueryDef {
         param: &mut Parameter,
         args: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
-        if param.param_type == ParameterType::TableName || param.param_type == ParameterType::List {
+        if param.param_type == ParameterType::TableName
+            || param.param_type == ParameterType::List
+            || param.param_type == ParameterType::CommaList
+        {
             Self::process_automatic_parameter(param, args)?;
         } else {
             Self::process_regular_parameter(param, args)?;

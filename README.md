@@ -33,6 +33,10 @@ SELECT #[column_name] FROM users ORDER BY #[column_name]
 -- List parameters for IN clauses - always list type with item type validation
 SELECT * FROM users WHERE id IN :[user_ids] AND status IN :[statuses]
 
+-- Comma list parameters - ~[param] syntax for comma-separated values (always comma_list type)
+SELECT ~[fields] FROM users WHERE status='active'
+-- With runtime params {"fields": ["name", "email", "age"]} becomes: SELECT name,email,age FROM users WHERE status='active'
+
 -- Parameters in quoted strings (treated as literals)
 SELECT * FROM users WHERE name='@literal_text'
 ```
@@ -108,6 +112,13 @@ Each query definition contains:
         "type": "string",
         "pattern": "\\S+@\\S+\\.\\S+"
       }
+    }
+  },
+  "select_fields": {
+    "query": "SELECT ~[fields] FROM users WHERE status='active'",
+    "returns": ["name", "email", "age"],
+    "args": {
+      "fields": {"enum": ["name", "email", "age"]}
     }
   },
   "query_from_table": {
@@ -209,6 +220,7 @@ let query_result = query_run_sqlite(&mut conn, &queries, "insert_into_dynamic_ta
 // Automatically assigned parameter types (cannot be overridden)
 "table_name"  // Assigned to parameters using #[table] syntax
 "list"        // Assigned to parameters using :[list] syntax
+"comma_list"  // Assigned to parameters using ~[param] syntax
 
 // Constraint types
 "range": [min, max]     // For numeric types (integer/float) and blob sizes

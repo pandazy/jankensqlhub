@@ -482,3 +482,98 @@ fn test_parameter_validation_range_definition_errors() {
     let result = QueryDefinitions::from_json(json_definitions_valid);
     assert!(result.is_ok(), "Valid range definition should work");
 }
+
+#[test]
+fn test_args_value_must_be_object_not_array() {
+    // Test that args values must be objects (constraint definitions), not arrays
+    // This test verifies the bug fix where arrays like ["name", "email"] were silently ignored
+
+    let json_definitions_array = serde_json::json!({
+        "invalid_args": {
+            "query": "SELECT ~[fields] FROM users",
+            "args": {
+                "fields": ["name", "email"]  // This should be {"enum": ["name", "email"]}
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_array);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "parameter definition to be an object with constraint fields"
+        );
+        assert!(
+            got.contains("array"),
+            "Expected error message to mention 'array', got: {}",
+            got
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for array args value, got: {err_str}");
+    }
+
+    // Test with string value
+    let json_definitions_string = serde_json::json!({
+        "invalid_args": {
+            "query": "SELECT * FROM users WHERE name=@name",
+            "args": {
+                "name": "should_be_object"
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_string);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "parameter definition to be an object with constraint fields"
+        );
+        assert!(
+            got.contains("string"),
+            "Expected error message to mention 'string', got: {}",
+            got
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for string args value, got: {err_str}");
+    }
+
+    // Test with number value
+    let json_definitions_number = serde_json::json!({
+        "invalid_args": {
+            "query": "SELECT * FROM users WHERE id=@id",
+            "args": {
+                "id": 42
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_number);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "parameter definition to be an object with constraint fields"
+        );
+        assert!(
+            got.contains("number"),
+            "Expected error message to mention 'number', got: {}",
+            got
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for number args value, got: {err_str}");
+    }
+}
