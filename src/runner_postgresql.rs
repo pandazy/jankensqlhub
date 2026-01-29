@@ -131,10 +131,19 @@ fn row_to_json_object(
     returns: &[String],
 ) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
     let mut obj = serde_json::Map::new();
-    for (idx, field_name) in returns.iter().enumerate() {
-        // PostgreSQL row indexing starts at 0
-        let value = match row.columns().get(idx) {
-            Some(col) => postgres_type_to_json_conversion(col.type_(), row, idx),
+
+    // Get all columns from the row
+    let columns = row.columns();
+
+    for field_name in returns {
+        // Find the column index by matching the column name
+        let column_idx = columns.iter().position(|col| col.name() == field_name);
+
+        let value = match column_idx {
+            Some(idx) => {
+                let col = &columns[idx];
+                postgres_type_to_json_conversion(col.type_(), row, idx)
+            }
             None => Ok(serde_json::Value::Null),
         };
 
