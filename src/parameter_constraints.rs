@@ -133,6 +133,17 @@ impl ParameterConstraints {
         JankenError::new_parameter_type_mismatch(param_type.to_string(), value.to_string())
     }
 
+    /// Validate that a string is a valid table name (alphanumeric and underscores only)
+    fn validate_table_name_format(table_name: &str, context: &str) -> Result<()> {
+        if table_name.is_empty() || !table_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(JankenError::new_parameter_type_mismatch(
+                format!("valid table name (alphanumeric and underscores only){context}"),
+                table_name,
+            ));
+        }
+        Ok(())
+    }
+
     /// Validate parameter constraints (range, pattern, enum, enumif) assuming basic type validation is already done
     fn validate_constraints(
         &self,
@@ -347,21 +358,67 @@ impl ParameterConstraints {
             return Ok(());
         }
 
+        if param_type == &crate::ParameterType::CommaList {
+            if !value.is_array() {
+                return Err(Self::constraint_mismatch_error(param_type, value));
+            }
+
+            // Validate each item in the comma list - must be strings
+            let array = value.as_array().unwrap(); // already verified above
+            for (index, item) in array.iter().enumerate() {
+                // Each item must be a string
+                if !item.is_string() {
+                    return Err(JankenError::new_parameter_type_mismatch(
+                        format!("string at index {index}"),
+                        item.to_string(),
+                    ));
+                }
+                // Apply constraints (pattern, enum) to each string item
+                let string_val = item.as_str().unwrap();
+
+                // Check pattern constraint
+                if let Some(pattern) = &self.pattern {
+                    let regex = Regex::new(pattern).map_err(|_| {
+                        JankenError::new_parameter_type_mismatch(
+                            "valid regex pattern",
+                            pattern.clone(),
+                        )
+                    })?;
+                    if !regex.is_match(string_val) {
+                        return Err(JankenError::new_parameter_type_mismatch(
+                            format!("string matching pattern '{pattern}' at index {index}"),
+                            string_val,
+                        ));
+                    }
+                }
+
+                // Check enum constraint
+                if let Some(enum_values) = &self.enum_values {
+                    if !enum_values.contains(item) {
+                        let enum_str = enum_values
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        return Err(JankenError::new_parameter_type_mismatch(
+                            format!("one of [{enum_str}] at index {index}"),
+                            string_val,
+                        ));
+                    }
+                }
+
+                // Apply table name validation (alphanumeric and underscores only)
+                Self::validate_table_name_format(string_val, &format!(" at index {index}"))?;
+            }
+            return Ok(());
+        }
+
         self.validate_constraints(value, param_type, param_name, all_params)?;
 
         if param_type == &crate::ParameterType::TableName {
             // value cannot be a non-string here since basic type validation has been done
             let table_name_str = value.as_str().unwrap();
-            if table_name_str.is_empty()
-                || !table_name_str
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || c == '_')
-            {
-                return Err(JankenError::new_parameter_type_mismatch(
-                    "valid table name (alphanumeric and underscores only)",
-                    table_name_str,
-                ));
-            }
+            Self::validate_table_name_format(table_name_str, "")?;
         }
 
         Ok(())
@@ -373,6 +430,25 @@ pub fn parse_constraints(
     constraints: &mut ParameterConstraints,
     arg_def: &serde_json::Value,
 ) -> Result<()> {
+    // Validate that arg_def is an object
+    // If a parameter is explicitly defined in args, it must be an object with constraint fields
+    if !arg_def.is_object() {
+        return Err(JankenError::new_parameter_type_mismatch(
+            "parameter definition to be an object with constraint fields",
+            format!(
+                "{arg_def} (type: {})",
+                match arg_def {
+                    serde_json::Value::Array(_) => "array",
+                    serde_json::Value::String(_) => "string",
+                    serde_json::Value::Number(_) => "number",
+                    serde_json::Value::Bool(_) => "boolean",
+                    serde_json::Value::Null => "null",
+                    _ => "unknown",
+                }
+            ),
+        ));
+    }
+
     if let Some(range_val) = arg_def.get("range") {
         let expected_content = "array with exactly 2 numbers for range constraint";
         let range_array = match range_val.as_array() {

@@ -150,25 +150,41 @@ pub fn execute_query_unified(
             prepare_single_statement_sqlite(&query.sql, &query.parameters, request_params_obj)?;
         let mut stmt = tx.prepare(&prepared.sql)?;
         let named_params = prepared.as_named_params();
+
+        // Get column names from the prepared statement
+        let column_names: Vec<String> = stmt
+            .column_names()
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+
         let rows = stmt.query_map(&named_params[..], |row| {
             let mut obj = serde_json::Map::new();
-            for (idx, field_name) in query.returns.iter().enumerate() {
-                let value: rusqlite::Result<serde_json::Value> = match row.get_ref(idx) {
-                    Ok(rusqlite::types::ValueRef::Integer(i)) => {
-                        Ok(serde_json::Value::Number(i.into()))
-                    }
-                    Ok(rusqlite::types::ValueRef::Real(r)) => Ok(serde_json::Value::from(r)),
-                    Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
-                        String::from_utf8_lossy(s).to_string(),
-                    )),
-                    Ok(rusqlite::types::ValueRef::Blob(b)) => Ok(serde_json::Value::Array(
-                        b.iter()
-                            .map(|&byte| serde_json::Value::Number(byte.into()))
-                            .collect(),
-                    )),
-                    Ok(rusqlite::types::ValueRef::Null) => Ok(serde_json::Value::Null),
-                    Err(e) => Err(e),
+
+            for field_name in &query.returns {
+                // Find the column index by matching the column name
+                let column_idx = column_names.iter().position(|name| name == field_name);
+
+                let value: rusqlite::Result<serde_json::Value> = match column_idx {
+                    Some(idx) => match row.get_ref(idx) {
+                        Ok(rusqlite::types::ValueRef::Integer(i)) => {
+                            Ok(serde_json::Value::Number(i.into()))
+                        }
+                        Ok(rusqlite::types::ValueRef::Real(r)) => Ok(serde_json::Value::from(r)),
+                        Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
+                            String::from_utf8_lossy(s).to_string(),
+                        )),
+                        Ok(rusqlite::types::ValueRef::Blob(b)) => Ok(serde_json::Value::Array(
+                            b.iter()
+                                .map(|&byte| serde_json::Value::Number(byte.into()))
+                                .collect(),
+                        )),
+                        Ok(rusqlite::types::ValueRef::Null) => Ok(serde_json::Value::Null),
+                        Err(e) => Err(e),
+                    },
+                    None => Ok(serde_json::Value::Null),
                 };
+
                 match value {
                     Ok(val) => {
                         obj.insert(field_name.clone(), val);
