@@ -97,7 +97,7 @@ fn test_invalid_query_definition_structure_from_json() {
 
 #[test]
 fn test_from_json_invalid_returns_field() {
-    // Test that QueryDefinitions::from_json fails when returns field is not an array
+    // Test that QueryDefinitions::from_json fails when returns field is not an array or valid ~[param] string
     let json_definitions = serde_json::json!({
         "bad_query": {
             "query": "SELECT * FROM test",
@@ -113,8 +113,8 @@ fn test_from_json_invalid_returns_field() {
     if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
         let expected = error_meta(&data, M_EXPECTED).unwrap();
         let got = error_meta(&data, M_GOT).unwrap();
-        assert_eq!(expected, "array of strings");
-        assert!(got.contains("not an array"));
+        assert_eq!(expected, "array of strings or ~[param_name] format");
+        assert!(got.contains("not in ~[param_name] format"));
     } else {
         panic!("Expected ParameterTypeMismatch for invalid returns field, got: {err_str}");
     }

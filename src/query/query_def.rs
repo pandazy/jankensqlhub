@@ -6,12 +6,21 @@ use crate::{
 };
 use std::str::FromStr;
 
+/// Specification for which fields to return from a query
+#[derive(Debug, Clone)]
+pub enum ReturnsSpec {
+    /// Static list of field names specified at definition time
+    Static(Vec<String>),
+    /// Dynamic reference to a comma_list parameter: ~[param_name]
+    Dynamic(String), // Stores the parameter name (without ~[])
+}
+
 /// Represents a parsed SQL query with parameters
 #[derive(Debug)]
 pub struct QueryDef {
     pub sql: String,
     pub parameters: Vec<Parameter>,
-    pub returns: Vec<String>,
+    pub returns: ReturnsSpec,
 }
 
 impl QueryDef {
@@ -33,7 +42,7 @@ impl QueryDef {
         Ok(QueryDef {
             sql: sql.to_string(),
             parameters,
-            returns: Vec::new(),
+            returns: ReturnsSpec::Static(Vec::new()),
         })
     }
 
