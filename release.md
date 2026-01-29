@@ -6,42 +6,24 @@
 
 Changed the "returns" field implementation to map database columns by name instead of positional indexing, making queries more robust and flexible.
 
-**Before v1.2.0 (Positional):**
-```rust
-// Mapped by index - fragile and order-dependent
-for (idx, field_name) in returns.iter().enumerate() {
-    let value = row.get(idx);  // Position-based
-}
-```
-
-**After v1.2.0 (Name-based):**
-```rust
-// Mapped by column name - robust and order-independent
-for field_name in returns {
-    let column_idx = columns.iter().position(|col| col.name() == field_name);
-    let value = row.get(column_idx);  // Name-based
-}
-```
-
 **Benefits:**
 - ✅ Results independent of column order in SELECT statements
 - ✅ Works correctly with `SELECT *` queries
 - ✅ Compatible with dynamic table/column names (`#[table_name]` syntax)
 - ✅ Missing columns map to `null` instead of causing errors
-- ✅ More SQL-like behavior (standard SQL references columns by name)
 
 **Example:**
 ```json
 {
   "query": "SELECT id, name, email FROM users WHERE id=@id",
-  "returns": ["name", "email", "id"],  // Order doesn't matter anymore!
+  "returns": ["name", "email", "id"],  // Order doesn't matter!
   "args": {"id": {"type": "integer"}}
 }
 ```
 
 ---
 
-### 2. 🆕 Comma List Parameter Feature
+### 2. 🆕 Comma List Parameter Feature (`~[param]`)
 
 Added support for `~[param]` syntax to replace placeholders with comma-separated values, enabling dynamic field selection and table lists.
 
@@ -61,90 +43,70 @@ SELECT name,email,age FROM users WHERE status='active'
 ```
 
 **Key Features:**
-- **Dynamic field selection**: `SELECT ~[fields] FROM table`
-- **Dynamic table lists**: `SELECT * FROM ~[tables]`
-- **Array validation**: Each element must be a string (table name format)
-- **Constraint support**: Works with `enum` and `pattern` constraints
-- **SQL injection prevention**: Validates alphanumeric + underscore only
-
-**Example Definition:**
-```json
-{
-  "select_fields": {
-    "query": "SELECT ~[fields] FROM users WHERE status='active'",
-    "returns": ["name", "email", "age"],
-    "args": {
-      "fields": {"enum": ["name", "email", "age"]}
-    }
-  }
-}
-```
-
-**Security:**
-- Table name validation (alphanumeric and underscores only)
-- Prevents SQL injection through special characters
-- Empty arrays rejected at runtime
-- Non-string elements rejected
+- Dynamic field selection: `SELECT ~[fields] FROM table`
+- Dynamic table lists: `SELECT * FROM ~[tables]`
+- Constraint support: Works with `enum` and `pattern` constraints
+- SQL injection prevention: Validates alphanumeric + underscore only
 
 ---
 
-### 3. 🔒 Enhanced Args Validation
+### 3. 🔄 Dynamic Returns Specification
 
-Strengthened validation for parameter definitions in the `args` object to ensure type safety and prevent silent failures.
+Added support for `~[param_name]` syntax in the "returns" field, allowing return fields to be determined at runtime from a comma_list parameter.
 
-**The Problem:**
+**Static Returns (traditional):**
 ```json
 {
+  "query": "SELECT name, email, age FROM users",
+  "returns": ["name", "email"]
+}
+```
+
+**Dynamic Returns (new):**
+```json
+{
+  "query": "SELECT ~[fields] FROM users WHERE status='active'",
+  "returns": "~[fields]",
   "args": {
-    "fields": ["name", "email"]  // ❌ Was silently ignored - no error!
+    "fields": {"enum": ["name", "email", "age"]}
   }
 }
 ```
 
-**The Solution:**
-```json
-{
-  "args": {
-    "fields": {"enum": ["name", "email"]}  // ✅ Proper constraint object
-  }
-}
-```
+**Runtime Flexibility:**
+- Same query definition can return different fields per request
+- Request 1: `{"fields": ["name"]}` → returns only name
+- Request 2: `{"fields": ["name", "email"]}` → returns name and email
 
-**Validation Rules:**
+**Validation:**
+- Invalid format → clear error message
+- Non-existent parameter → clear error message  
+- Parameter not CommaList type → clear error message
+- Missing at runtime → clear error message
+
+---
+
+## 🔒 **Enhanced Validation**
+
+### Args Validation
+Strengthened validation for parameter definitions in the `args` object:
+
 - **✅ Parameter NOT in args** → Valid (no constraints applied)
 - **✅ Parameter with object value** → Valid (e.g., `{"enum": [...]}`)
-- **❌ Parameter with non-object value** → Error (e.g., `["value"]`, `"string"`, `42`)
-
-**Benefits:**
-- Early error detection at definition time
-- Type safety for all parameter definitions
-- Clear, specific error messages
-- No more silent failures
-
-**Error Examples:**
-```
-Expected: parameter definition to be an object with constraint fields
-Got: ["name","email"] (type: array)
-```
+- **❌ Parameter with non-object value** → Error (e.g., `["value"]`, `"string"`)
 
 ---
-
-## 📝 **Documentation Updates**
-
-- Clarified distinction between runtime parameter values vs definition constraints
-- Added comma list examples with correct `args` format
-- Updated README with proper constraint object syntax
-- Enhanced error messages for better debugging
 
 ## 🧪 **Testing**
 
-All 117 tests passing:
+All 165+ tests passing:
 - ✅ 21 comma list parameter tests
-- ✅ 12 query definition validation tests
+- ✅ 13 dynamic returns tests  
+- ✅ 47 unit tests for resolve_returns and parameter handling
 - ✅ Complete coverage for returns mapping
 - ✅ All SQLite and PostgreSQL integration tests
 
-## 🔧 **Modified Files**
+## 🔧 **Files Modified**
 
 **Returns Mapping:**
 - `src/runner_postgresql.rs` - Name-based mapping for PostgreSQL
@@ -153,41 +115,12 @@ All 117 tests passing:
 **Comma List Feature:**
 - `src/parameters.rs` - Added `~[param]` parsing and validation
 - `src/parameter_constraints.rs` - Comma list constraint validation
-- `tests/comma_list_tests.rs` - Comprehensive test suite (21 tests)
 
-**Args Validation:**
-- `src/parameter_constraints.rs` - Enhanced `parse_constraints()` validation
-- `tests/error_handling_query_definition.rs` - Args validation tests
-
-## 🔄 **Migration Guide**
-
-### For Non-Object Args Values:
-
-**Before:**
-```json
-"args": {
-  "fields": ["name", "email"],  // Will now error
-  "status": "active"             // Will now error
-}
-```
-
-**After (Option 1 - Add constraints):**
-```json
-"args": {
-  "fields": {"enum": ["name", "email"]},
-  "status": {"enum": ["active", "inactive"]}
-}
-```
-
-**After (Option 2 - Remove if no constraints needed):**
-```json
-// Simply omit the args object or parameter
-```
-
-### For Returns Field Order:
-
-No migration needed! Your existing queries will work correctly regardless of column order in SELECT statements.
+**Dynamic Returns:**
+- `src/query/query_def.rs` - Added `ReturnsSpec` enum
+- `src/query/query_definitions.rs` - Enhanced parsing logic
+- `tests/dynamic_returns_tests.rs` - Comprehensive test suite
 
 ---
 
-**Version 1.2.0** - Name-based returns mapping, comma list parameters, and enhanced args validation
+**Version 1.2.0** - Name-based returns mapping, comma list parameters, and dynamic returns specification

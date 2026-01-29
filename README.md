@@ -121,6 +121,13 @@ Each query definition contains:
       "fields": {"enum": ["name", "email", "age"]}
     }
   },
+  "dynamic_select_fields": {
+    "query": "SELECT ~[fields] FROM users WHERE status='active'",
+    "returns": "~[fields]",
+    "args": {
+      "fields": {"enum": ["name", "email", "age"]}
+    }
+  },
   "query_from_table": {
     "query": "SELECT * FROM #[source] WHERE id=@id AND name=@name",
     "returns": ["id", "name"],
