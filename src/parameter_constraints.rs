@@ -430,22 +430,22 @@ pub fn parse_constraints(
     constraints: &mut ParameterConstraints,
     arg_def: &serde_json::Value,
 ) -> Result<()> {
+    // Determine the type string for error messages
+    let arg_type = match arg_def {
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Null => "null",
+        serde_json::Value::Object(_) => "object",
+    };
+
     // Validate that arg_def is an object
     // If a parameter is explicitly defined in args, it must be an object with constraint fields
     if !arg_def.is_object() {
         return Err(JankenError::new_parameter_type_mismatch(
             "parameter definition to be an object with constraint fields",
-            format!(
-                "{arg_def} (type: {})",
-                match arg_def {
-                    serde_json::Value::Array(_) => "array",
-                    serde_json::Value::String(_) => "string",
-                    serde_json::Value::Number(_) => "number",
-                    serde_json::Value::Bool(_) => "boolean",
-                    serde_json::Value::Null => "null",
-                    _ => "unknown",
-                }
-            ),
+            format!("{arg_def} (type: {arg_type})"),
         ));
     }
 

@@ -1,4 +1,6 @@
-use jankensqlhub::{M_EXPECTED, QueryDefinitions, error_meta, get_error_data, query_run_sqlite};
+use jankensqlhub::{
+    M_EXPECTED, M_GOT, QueryDefinitions, error_meta, get_error_data, query_run_sqlite,
+};
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -651,6 +653,76 @@ fn test_comma_list_enum_and_table_name_validation() {
             expected.contains("posts") && expected.contains("comments"),
             "Expected enum values in error, got: {}",
             expected
+        );
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}
+
+#[test]
+fn test_comma_list_conflict_with_regular_param() {
+    let json_definitions = json!({
+        "conflicting_names": {
+            "query": "SELECT name FROM users WHERE status = @fields AND id IN (SELECT id FROM ~[fields])",
+            "returns": ["name"]
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions);
+    assert!(
+        result.is_err(),
+        "Should detect parameter name conflict between @fields and ~[fields]"
+    );
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let param_name = error_meta(data, "conflicting_name").unwrap();
+        assert_eq!(
+            param_name, "fields",
+            "Expected conflict on parameter 'fields', got: {}",
+            param_name
+        );
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}
+
+#[test]
+fn test_comma_list_invalid_regex_pattern() {
+    // Test that an invalid regex pattern causes appropriate error
+    let mut conn = setup_db();
+
+    let json_definitions = json!({
+        "invalid_regex": {
+            "query": "SELECT ~[fields] FROM users",
+            "returns": ["name"],
+            "args": {
+                "fields": {
+                    "pattern": "[invalid(regex"
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let params = json!({"fields": ["name"]});
+    let result = query_run_sqlite(&mut conn, &queries, "invalid_regex", &params);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        let got = error_meta(data, M_GOT).unwrap();
+
+        // Verify error from Regex::new() failure
+        assert!(
+            expected.contains("valid regex pattern"),
+            "Expected 'valid regex pattern' in error"
+        );
+        assert!(
+            got.contains("[invalid(regex"),
+            "Expected invalid pattern in error"
         );
     } else {
         panic!("Expected JankenError, got: {:?}", err);

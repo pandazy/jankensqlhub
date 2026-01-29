@@ -165,34 +165,26 @@ pub fn execute_query_unified(
                 // Find the column index by matching the column name
                 let column_idx = column_names.iter().position(|name| name == field_name);
 
-                let value: rusqlite::Result<serde_json::Value> = match column_idx {
-                    Some(idx) => match row.get_ref(idx) {
-                        Ok(rusqlite::types::ValueRef::Integer(i)) => {
-                            Ok(serde_json::Value::Number(i.into()))
+                let value: serde_json::Value = match column_idx {
+                    Some(idx) => match row.get_ref(idx).expect("column index should be valid") {
+                        rusqlite::types::ValueRef::Integer(i) => {
+                            serde_json::Value::Number(i.into())
                         }
-                        Ok(rusqlite::types::ValueRef::Real(r)) => Ok(serde_json::Value::from(r)),
-                        Ok(rusqlite::types::ValueRef::Text(s)) => Ok(serde_json::Value::String(
-                            String::from_utf8_lossy(s).to_string(),
-                        )),
-                        Ok(rusqlite::types::ValueRef::Blob(b)) => Ok(serde_json::Value::Array(
+                        rusqlite::types::ValueRef::Real(r) => serde_json::Value::from(r),
+                        rusqlite::types::ValueRef::Text(s) => {
+                            serde_json::Value::String(String::from_utf8_lossy(s).to_string())
+                        }
+                        rusqlite::types::ValueRef::Blob(b) => serde_json::Value::Array(
                             b.iter()
                                 .map(|&byte| serde_json::Value::Number(byte.into()))
                                 .collect(),
-                        )),
-                        Ok(rusqlite::types::ValueRef::Null) => Ok(serde_json::Value::Null),
-                        Err(e) => Err(e),
+                        ),
+                        rusqlite::types::ValueRef::Null => serde_json::Value::Null,
                     },
-                    None => Ok(serde_json::Value::Null),
+                    None => serde_json::Value::Null,
                 };
 
-                match value {
-                    Ok(val) => {
-                        obj.insert(field_name.clone(), val);
-                    }
-                    Err(_) => {
-                        obj.insert(field_name.clone(), serde_json::Value::Null);
-                    }
-                }
+                obj.insert(field_name.clone(), value);
             }
             Ok(serde_json::Value::Object(obj))
         })?;

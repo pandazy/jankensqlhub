@@ -576,4 +576,64 @@ fn test_args_value_must_be_object_not_array() {
     } else {
         panic!("Expected ParameterTypeMismatch for number args value, got: {err_str}");
     }
+
+    // Test with boolean value
+    let json_definitions_boolean = serde_json::json!({
+        "invalid_args": {
+            "query": "SELECT * FROM users WHERE active=@active",
+            "args": {
+                "active": true
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_boolean);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "parameter definition to be an object with constraint fields"
+        );
+        assert!(
+            got.contains("boolean"),
+            "Expected error message to mention 'boolean', got: {}",
+            got
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for boolean args value, got: {err_str}");
+    }
+
+    // Test with null value
+    let json_definitions_null = serde_json::json!({
+        "invalid_args": {
+            "query": "SELECT * FROM users WHERE name=@name",
+            "args": {
+                "name": null
+            }
+        }
+    });
+
+    let result = QueryDefinitions::from_json(json_definitions_null);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(
+            expected,
+            "parameter definition to be an object with constraint fields"
+        );
+        assert!(
+            got.contains("null"),
+            "Expected error message to mention 'null', got: {}",
+            got
+        );
+    } else {
+        panic!("Expected ParameterTypeMismatch for null args value, got: {err_str}");
+    }
 }

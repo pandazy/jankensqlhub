@@ -419,6 +419,7 @@ pub fn prepare_parameter_statement_generic(
             // Safe unwrap: parameter type already validated as array at function start
             let comma_list_array = comma_list_value.as_array().unwrap();
 
+            // Array emptiness is already validated by constraints at function start
             if comma_list_array.is_empty() {
                 return Err(JankenError::new_parameter_type_mismatch(
                     "non-empty array",
@@ -429,12 +430,8 @@ pub fn prepare_parameter_statement_generic(
             // Validate that all elements are strings (table names)
             let mut table_names = Vec::new();
             for item in comma_list_array {
-                let table_name = item.as_str().ok_or_else(|| {
-                    JankenError::new_parameter_type_mismatch(
-                        "string (table name)",
-                        item.to_string(),
-                    )
-                })?;
+                // Safe unwrap: parameter presence already validated at function start
+                let table_name = item.as_str().unwrap();
                 table_names.push(table_name);
             }
 
@@ -563,6 +560,27 @@ mod tests {
                 let got = metadata.get("got").unwrap().as_str().unwrap();
                 assert_eq!(expected, "non-list parameter");
                 assert_eq!(got, "list parameter (should be expanded)");
+            }
+            _ => panic!("Expected ParameterTypeMismatch error"),
+        }
+    }
+
+    #[test]
+    fn test_json_value_to_parameter_value_comma_list() {
+        let json_val = json!(["table1", "table2"]);
+        let result = json_value_to_parameter_value(&json_val, &ParameterType::CommaList);
+        assert!(matches!(
+            result,
+            Err(JankenError::ParameterTypeMismatch { .. })
+        ));
+        match result {
+            Err(JankenError::ParameterTypeMismatch { data }) => {
+                let metadata: serde_json::Value =
+                    serde_json::from_str(&data.metadata.unwrap_or("{}".to_string())).unwrap();
+                let expected = metadata.get("expected").unwrap().as_str().unwrap();
+                let got = metadata.get("got").unwrap().as_str().unwrap();
+                assert_eq!(expected, "non-comma-list parameter");
+                assert_eq!(got, "comma-list parameter (should be expanded)");
             }
             _ => panic!("Expected ParameterTypeMismatch error"),
         }
