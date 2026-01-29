@@ -30,9 +30,9 @@
 ## GitHub CI/CD
 
 - **Secrets**: `POSTGRES_PASSWORD` required in repository settings
-- **Auto-triggers**: PRs and pushes to main/develop
+- **Auto-triggers**: PRs and pushes to main
 - **Isolation**: Ephemeral databases, no data persistence
-- **Workflow**: `.github/workflows/postgresql.yml`
+- **Workflow**: `.github/workflows/verify.yml`
 
 ## Files
 
