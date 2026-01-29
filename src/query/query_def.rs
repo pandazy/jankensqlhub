@@ -114,7 +114,9 @@ impl QueryDef {
         args: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
         // Due to augmented args creation, we know this parameter must exist in args
-        let arg_def = args.get(&param.name).unwrap();
+        let arg_def = args
+            .get(&param.name)
+            .expect("augmented args creation ensures this parameter exists");
         Self::parse_regular_parameter_type(param, arg_def)?;
         parse_constraints(&mut param.constraints, arg_def)?;
 

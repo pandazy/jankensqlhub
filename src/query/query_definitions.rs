@@ -71,8 +71,16 @@ impl QueryDefinitions {
                     // Use the existing COMMA_LIST_REGEX to validate and extract parameter name
                     if let Some(cap) = COMMA_LIST_REGEX.captures(returns_str) {
                         // Ensure the entire string matches (no extra characters)
-                        if cap.get(0).unwrap().as_str() == returns_str {
-                            let param_name = cap.get(1).unwrap().as_str();
+                        if cap
+                            .get(0)
+                            .expect("regex capture group 0 always exists when captures matches")
+                            .as_str()
+                            == returns_str
+                        {
+                            let param_name = cap
+                                .get(1)
+                                .expect("COMMA_LIST_REGEX always has capture group 1")
+                                .as_str();
 
                             // Verify this parameter exists and is a CommaList type
                             let param_exists = query_def.parameters.iter().any(|p| {

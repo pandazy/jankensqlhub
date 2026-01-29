@@ -1,6 +1,6 @@
 [package]
 name = "jankensqlhub"
-version = "1.2.1"
+version = "1.2.2"
 edition = "2024"
 authors = ["Martin Zheng <jszhengyq@gmail.com>"]
 description = "A high-performance, modular Rust library for parameterizable SQL query management with support for SQLite and PostgreSQL"
