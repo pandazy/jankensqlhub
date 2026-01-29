@@ -217,12 +217,24 @@ impl ParameterConstraints {
                 }
             }
             crate::ParameterType::Integer => {
-                if !value.is_number() || value.as_number().unwrap().as_i64().is_none() {
+                if !value.is_number()
+                    || value
+                        .as_number()
+                        .expect("is_number() already verified this is a number")
+                        .as_i64()
+                        .is_none()
+                {
                     return Err(Self::constraint_mismatch_error(param_type, value));
                 }
             }
             crate::ParameterType::Float => {
-                if !value.is_number() || value.as_number().unwrap().as_f64().is_none() {
+                if !value.is_number()
+                    || value
+                        .as_number()
+                        .expect("is_number() already verified this is a number")
+                        .as_f64()
+                        .is_none()
+                {
                     return Err(Self::constraint_mismatch_error(param_type, value));
                 }
             }
@@ -327,7 +339,9 @@ impl ParameterConstraints {
                 match param_type {
                     crate::ParameterType::Integer | crate::ParameterType::Float => {
                         // Validated upfront that param_type is Integer or Float, so value is number
-                        let num_val = value.as_f64().unwrap();
+                        let num_val = value
+                            .as_f64()
+                            .expect("value already validated as numeric type");
 
                         if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
                             if num_val < min || num_val > max {
@@ -340,7 +354,10 @@ impl ParameterConstraints {
                     }
                     crate::ParameterType::Blob => {
                         // For blob, range represents min/max size in bytes
-                        let blob_size = value.as_array().unwrap().len() as f64;
+                        let blob_size = value
+                            .as_array()
+                            .expect("value already validated as Blob type")
+                            .len() as f64;
 
                         if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
                             if blob_size < min || blob_size > max {
@@ -384,7 +401,9 @@ impl ParameterConstraints {
             // Validate each item in the list if item_type is specified
             // Note: item_type validation is already done during constraint parsing at definition time
             if let Some(item_type) = &self.item_type {
-                let array = value.as_array().unwrap(); // already verified at the beginning;
+                let array = value
+                    .as_array()
+                    .expect("is_array() already verified at the beginning of this block");
                 for (index, item) in array.iter().enumerate() {
                     let context = format!(" at index {index}");
                     // Validate basic type and constraints for each item
@@ -410,7 +429,9 @@ impl ParameterConstraints {
             }
 
             // Validate each item in the comma list - must be strings
-            let array = value.as_array().unwrap(); // already verified above
+            let array = value
+                .as_array()
+                .expect("is_array() already verified at the beginning of this block");
             for (index, item) in array.iter().enumerate() {
                 let context = format!(" at index {index}");
                 // Each item must be a string
@@ -432,7 +453,9 @@ impl ParameterConstraints {
                 )?;
 
                 // Apply table name validation (alphanumeric and underscores only)
-                let string_val = item.as_str().unwrap();
+                let string_val = item
+                    .as_str()
+                    .expect("is_string() already verified for this item");
                 Self::validate_table_name_format(string_val, &context)?;
             }
             return Ok(());
@@ -442,7 +465,9 @@ impl ParameterConstraints {
 
         if param_type == &crate::ParameterType::TableName {
             // value cannot be a non-string here since basic type validation has been done
-            let table_name_str = value.as_str().unwrap();
+            let table_name_str = value
+                .as_str()
+                .expect("basic type validation already verified this is a string");
             Self::validate_table_name_format(table_name_str, "")?;
         }
 

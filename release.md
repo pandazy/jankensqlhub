@@ -1,51 +1,42 @@
-# Release Notes v1.2.1
+# Release Notes v1.2.2
 
-## 📚 **Documentation Improvements**
+## 🛡️ **Code Quality Improvements**
 
-### README.md Reorganization
+### Replaced `unwrap()` with `expect()` for Unreachable Code Paths
 
-Complete reorganization of README.md for improved readability and progressive disclosure:
+Improved code clarity and eliminated coverage gaps by replacing all `.unwrap()` calls in source files with `.expect()` containing descriptive error messages. This change:
 
-**Structural Changes:**
-- ✅ Added Table of Contents with anchor links
-- ✅ Progressive disclosure: basic → intermediate → advanced
-- ✅ Split large JSON examples into smaller, focused examples
-- ✅ Added reference tables throughout (syntax, types, constraints, errors)
-- ✅ Clear section separation with horizontal rules
+- **Clarifies intent**: Each `expect()` message explains why the unwrap cannot fail
+- **Eliminates coverage gaps**: Test coverage tools no longer flag these as potential uncovered panic paths
+- **Improves debugging**: If the "impossible" does happen, error messages indicate exactly what went wrong
 
-**New Content Sections:**
+**Files Updated:**
 
-1. **"Why JSON-Configured Queries?"**
-   - Emphasizes centralized query definitions
-   - Co-locating SQL with constraints for maintainability
-   - Easy auditing of all database operations
+| File | Changes |
+|------|---------|
+| `src/parameters.rs` | 14 replacements (regex statics, parameter handling) |
+| `src/parameter_constraints.rs` | 6 replacements (type validation) |
+| `src/query/query_def.rs` | 1 replacement (augmented args) |
+| `src/query/query_definitions.rs` | 2 replacements (regex captures) |
 
-2. **"Non-Invasive Design"**
-   - Clarifies this is a focused utility, not a framework
-   - Works alongside raw SQL, ORMs, or any database access pattern
-   - Gradual adoption supported
+**Total: 23 replacements**
 
-3. **"Acknowledgments"**
-   - Credits [Cline](https://cline.bot/) AI coding agent for development assistance
+**Example:**
+```rust
+// Before
+let num_val = value.as_f64().unwrap();
 
-**Document Flow:**
-1. Overview (why, non-invasive design, capabilities)
-2. Quick Start (30-second working example)
-3. Parameter Syntax Reference (lookup table)
-4. Usage Guide (common patterns)
-5. Advanced Features (constraints, enumif)
-6. Error Handling (compact reference)
-7. PostgreSQL Support
-8. Installation
-9. Architecture
-10. Acknowledgments
+// After  
+let num_val = value.as_f64()
+    .expect("value already validated as numeric type");
+```
 
 ---
 
 ## 🧪 **Testing**
 
-All tests passing - no code changes in this release.
+All tests passing - no functional changes in this release.
 
 ---
 
-**Version 1.2.1** - Documentation reorganization for improved readability
+**Version 1.2.2** - Code quality improvements for better maintainability

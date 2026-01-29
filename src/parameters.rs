@@ -8,13 +8,16 @@ use std::str::FromStr;
 
 // Regex compiled once as a lazy static for performance
 pub static PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"@(\w+)").unwrap());
-pub static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"#\[(\w+)\]").unwrap());
-pub static LIST_PARAMETER_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r":\[(\w+)\]").unwrap());
-pub static COMMA_LIST_REGEX: once_cell::sync::Lazy<Regex> =
-    once_cell::sync::Lazy::new(|| Regex::new(r"~\[(\w+)\]").unwrap());
+    once_cell::sync::Lazy::new(|| Regex::new(r"@(\w+)").expect("PARAMETER_REGEX is a valid regex"));
+pub static TABLE_NAME_REGEX: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    Regex::new(r"#\[(\w+)\]").expect("TABLE_NAME_REGEX is a valid regex")
+});
+pub static LIST_PARAMETER_REGEX: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    Regex::new(r":\[(\w+)\]").expect("LIST_PARAMETER_REGEX is a valid regex")
+});
+pub static COMMA_LIST_REGEX: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    Regex::new(r"~\[(\w+)\]").expect("COMMA_LIST_REGEX is a valid regex")
+});
 
 /// Parameter type enums for database operations
 #[derive(Debug, Clone, PartialEq)]
@@ -163,7 +166,11 @@ pub fn extract_parameters_with_regex(statement: &str, regex: &Regex) -> Vec<Stri
     for cap in regex.captures_iter(statement) {
         if let Some(named_match) = cap.get(0) {
             if !is_in_quotes(statement, named_match.start()) {
-                let name = cap.get(1).unwrap().as_str().to_string();
+                let name = cap
+                    .get(1)
+                    .expect("regex capture group 1 exists when group 0 matches")
+                    .as_str()
+                    .to_string();
                 if seen.insert(name.clone()) {
                     params.push(name);
                 }
@@ -182,7 +189,7 @@ pub fn contains_transaction_keywords(sql: &str) -> bool {
 
     // Check for exact keyword matches using word boundaries
     regex::Regex::new(r"(?i)\b(BEGIN|COMMIT|ROLLBACK|START TRANSACTION|END TRANSACTION)\b")
-        .unwrap()
+        .expect("transaction keywords regex is a valid regex")
         .is_match(&upper_sql)
 }
 
@@ -216,11 +223,14 @@ pub fn json_value_to_parameter_value_inferred(item: &serde_json::Value) -> Resul
         serde_json::Value::String(s) => Ok(ParameterValue::String(s.clone())),
         serde_json::Value::Number(n) => {
             if n.is_i64() {
-                // Safe unwrap: numbers are validated by constraints to be valid i64/f64
-                Ok(ParameterValue::Integer(n.as_i64().unwrap()))
+                Ok(ParameterValue::Integer(
+                    n.as_i64()
+                        .expect("is_i64() already verified this is an i64"),
+                ))
             } else {
-                // Safe unwrap: numbers are validated by constraints to be valid i64/f64
-                Ok(ParameterValue::Float(n.as_f64().unwrap()))
+                Ok(ParameterValue::Float(n.as_f64().expect(
+                    "Number that is not i64 must be representable as f64",
+                )))
             }
         }
         serde_json::Value::Bool(b) => Ok(ParameterValue::Boolean(*b)),
@@ -230,8 +240,9 @@ pub fn json_value_to_parameter_value_inferred(item: &serde_json::Value) -> Resul
         )),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
             // Arrays and objects get converted to JSON strings
-            // Safe unwrap: serde_json::Value is always valid JSON and can always be serialized
-            Ok(ParameterValue::String(serde_json::to_string(item).unwrap()))
+            Ok(ParameterValue::String(serde_json::to_string(item).expect(
+                "serde_json::Value is always valid JSON and can be serialized",
+            )))
         }
     }
 }
@@ -350,11 +361,13 @@ pub fn prepare_parameter_statement_generic(
         if let Some(param_name_match) = cap.get(1) {
             let param_name = param_name_match.as_str();
 
-            // Safe unwrap: parameter presence already validated at function start
-            let table_name_value = request_params_obj.get(param_name).unwrap();
+            let table_name_value = request_params_obj
+                .get(param_name)
+                .expect("parameter presence already validated at function start");
 
-            // Safe unwrap: parameter type already validated at function start
-            let table_name_str = table_name_value.as_str().unwrap();
+            let table_name_str = table_name_value
+                .as_str()
+                .expect("parameter type already validated as TableName at function start");
             prepared_sql = TABLE_NAME_REGEX
                 .replace(&prepared_sql, table_name_str)
                 .to_string();
@@ -367,11 +380,13 @@ pub fn prepare_parameter_statement_generic(
             if let Some(param_name_match) = cap.get(1) {
                 let list_param_name = param_name_match.as_str();
 
-                // Safe unwrap: parameter presence already validated at function start
-                let list_value = request_params_obj.get(list_param_name).unwrap();
+                let list_value = request_params_obj
+                    .get(list_param_name)
+                    .expect("parameter presence already validated at function start");
 
-                // Safe unwrap: parameter type already validated as list (array) at function start
-                let list_array = list_value.as_array().unwrap();
+                let list_array = list_value
+                    .as_array()
+                    .expect("parameter type already validated as List at function start");
 
                 if list_array.is_empty() {
                     return Err(JankenError::new_parameter_type_mismatch(
@@ -413,11 +428,13 @@ pub fn prepare_parameter_statement_generic(
         if let Some(param_name_match) = cap.get(1) {
             let comma_list_param_name = param_name_match.as_str();
 
-            // Safe unwrap: parameter presence already validated at function start
-            let comma_list_value = request_params_obj.get(comma_list_param_name).unwrap();
+            let comma_list_value = request_params_obj
+                .get(comma_list_param_name)
+                .expect("parameter presence already validated at function start");
 
-            // Safe unwrap: parameter type already validated as array at function start
-            let comma_list_array = comma_list_value.as_array().unwrap();
+            let comma_list_array = comma_list_value
+                .as_array()
+                .expect("parameter type already validated as CommaList at function start");
 
             // Array emptiness is already validated by constraints at function start
             if comma_list_array.is_empty() {
@@ -430,8 +447,9 @@ pub fn prepare_parameter_statement_generic(
             // Validate that all elements are strings (table names)
             let mut table_names = Vec::new();
             for item in comma_list_array {
-                // Safe unwrap: parameter presence already validated at function start
-                let table_name = item.as_str().unwrap();
+                let table_name = item
+                    .as_str()
+                    .expect("CommaList items already validated as strings at function start");
                 table_names.push(table_name);
             }
 
