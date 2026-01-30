@@ -164,16 +164,16 @@ pub fn extract_parameters_with_regex(statement: &str, regex: &Regex) -> Vec<Stri
     let mut seen = std::collections::HashSet::new();
 
     for cap in regex.captures_iter(statement) {
-        if let Some(named_match) = cap.get(0) {
-            if !is_in_quotes(statement, named_match.start()) {
-                let name = cap
-                    .get(1)
-                    .expect("regex capture group 1 exists when group 0 matches")
-                    .as_str()
-                    .to_string();
-                if seen.insert(name.clone()) {
-                    params.push(name);
-                }
+        if let Some(named_match) = cap.get(0)
+            && !is_in_quotes(statement, named_match.start())
+        {
+            let name = cap
+                .get(1)
+                .expect("regex capture group 1 exists when group 0 matches")
+                .as_str()
+                .to_string();
+            if seen.insert(name.clone()) {
+                params.push(name);
             }
         }
     }
@@ -376,43 +376,43 @@ pub fn prepare_parameter_statement_generic(
 
     // Handle list parameter expansion (:\[list\])
     for cap in LIST_PARAMETER_REGEX.captures_iter(&prepared_sql.clone()) {
-        if let Some(_param_match) = cap.get(0) {
-            if let Some(param_name_match) = cap.get(1) {
-                let list_param_name = param_name_match.as_str();
+        if let Some(_param_match) = cap.get(0)
+            && let Some(param_name_match) = cap.get(1)
+        {
+            let list_param_name = param_name_match.as_str();
 
-                let list_value = request_params_obj
-                    .get(list_param_name)
-                    .expect("parameter presence already validated at function start");
+            let list_value = request_params_obj
+                .get(list_param_name)
+                .expect("parameter presence already validated at function start");
 
-                let list_array = list_value
-                    .as_array()
-                    .expect("parameter type already validated as List at function start");
+            let list_array = list_value
+                .as_array()
+                .expect("parameter type already validated as List at function start");
 
-                if list_array.is_empty() {
-                    return Err(JankenError::new_parameter_type_mismatch(
-                        "non-empty list",
-                        "empty array",
-                    ));
-                }
-
-                // Create positional placeholders and values
-                // For list items, we infer the type from the JSON value itself
-                let mut placeholders = Vec::new();
-                for (i, item) in list_array.iter().enumerate() {
-                    let param_key = format!("{list_param_name}_{i}");
-                    placeholders.push(format!("@{param_key}")); // Keep @ for consistency
-
-                    // Convert JSON value to generic ParameterValue with type inference
-                    let generic_value = json_value_to_parameter_value_inferred(item)?;
-                    parameters.push((param_key, generic_value));
-                }
-
-                // Replace the :[param] with (positional placeholders joined by comma)
-                let placeholder_str = placeholders.join(", ");
-                prepared_sql = LIST_PARAMETER_REGEX
-                    .replace(&prepared_sql, format!("({placeholder_str})"))
-                    .to_string();
+            if list_array.is_empty() {
+                return Err(JankenError::new_parameter_type_mismatch(
+                    "non-empty list",
+                    "empty array",
+                ));
             }
+
+            // Create positional placeholders and values
+            // For list items, we infer the type from the JSON value itself
+            let mut placeholders = Vec::new();
+            for (i, item) in list_array.iter().enumerate() {
+                let param_key = format!("{list_param_name}_{i}");
+                placeholders.push(format!("@{param_key}")); // Keep @ for consistency
+
+                // Convert JSON value to generic ParameterValue with type inference
+                let generic_value = json_value_to_parameter_value_inferred(item)?;
+                parameters.push((param_key, generic_value));
+            }
+
+            // Replace the :[param] with (positional placeholders joined by comma)
+            let placeholder_str = placeholders.join(", ");
+            prepared_sql = LIST_PARAMETER_REGEX
+                .replace(&prepared_sql, format!("({placeholder_str})"))
+                .to_string();
         }
     }
 

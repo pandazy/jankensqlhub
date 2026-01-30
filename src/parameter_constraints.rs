@@ -141,30 +141,30 @@ impl ParameterConstraints {
         let mut allowed_values: Option<&Vec<serde_json::Value>> = None;
 
         for conditional_param in sorted_conditional_params {
-            if let Some(conditions) = enumif.get(conditional_param) {
-                if let Some(cond_val) = all_params.get(conditional_param) {
-                    // Get the conditional value as a string key (without JSON quotes)
-                    let cond_val_str = Self::value_to_condition_key(cond_val, conditional_param)?;
+            if let Some(conditions) = enumif.get(conditional_param)
+                && let Some(cond_val) = all_params.get(conditional_param)
+            {
+                // Get the conditional value as a string key (without JSON quotes)
+                let cond_val_str = Self::value_to_condition_key(cond_val, conditional_param)?;
 
-                    // Sort condition keys alphabetically for deterministic matching order
-                    let mut sorted_condition_keys: Vec<&String> = conditions.keys().collect();
-                    sorted_condition_keys.sort();
+                // Sort condition keys alphabetically for deterministic matching order
+                let mut sorted_condition_keys: Vec<&String> = conditions.keys().collect();
+                sorted_condition_keys.sort();
 
-                    // CONFLICT RESOLUTION: When multiple fuzzy patterns could match the same value
-                    // (e.g., "contain:admin" and "start:admin" both matching "admin_user"),
-                    // we use the first match in alphabetically sorted order.
-                    // This avoids unnecessary complication of trying to determine the "best" match
-                    // and provides predictable, deterministic behavior.
-                    for condition_key in sorted_condition_keys {
-                        if Self::matches_condition_key(condition_key, &cond_val_str) {
-                            found_matching_condition = true;
-                            // Use the first matching condition (as processed in alphabetical order)
-                            // If multiple conditional params match, the first one (alphabetically) wins
-                            if allowed_values.is_none() {
-                                allowed_values = conditions.get(condition_key);
-                            }
-                            break; // Stop at first match for this conditional param
+                // CONFLICT RESOLUTION: When multiple fuzzy patterns could match the same value
+                // (e.g., "contain:admin" and "start:admin" both matching "admin_user"),
+                // we use the first match in alphabetically sorted order.
+                // This avoids unnecessary complication of trying to determine the "best" match
+                // and provides predictable, deterministic behavior.
+                for condition_key in sorted_condition_keys {
+                    if Self::matches_condition_key(condition_key, &cond_val_str) {
+                        found_matching_condition = true;
+                        // Use the first matching condition (as processed in alphabetical order)
+                        // If multiple conditional params match, the first one (alphabetically) wins
+                        if allowed_values.is_none() {
+                            allowed_values = conditions.get(condition_key);
                         }
+                        break; // Stop at first match for this conditional param
                     }
                 }
             }
@@ -183,18 +183,18 @@ impl ParameterConstraints {
         }
 
         // Validate against the allowed values from the matching condition
-        if let Some(allowed) = allowed_values {
-            if !allowed.contains(value) {
-                let allowed_str = allowed
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Err(JankenError::new_parameter_type_mismatch(
-                    format!("one of [{allowed_str}] based on conditional parameters{context}"),
-                    value.to_string(),
-                ));
-            }
+        if let Some(allowed) = allowed_values
+            && !allowed.contains(value)
+        {
+            let allowed_str = allowed
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(JankenError::new_parameter_type_mismatch(
+                format!("one of [{allowed_str}] based on conditional parameters{context}"),
+                value.to_string(),
+            ));
         }
 
         Ok(())
@@ -334,42 +334,42 @@ impl ParameterConstraints {
         }
 
         // Check range for numeric types and blob size (skip if value is null)
-        if let Some(range) = &self.range {
-            if !value.is_null() {
-                match param_type {
-                    crate::ParameterType::Integer | crate::ParameterType::Float => {
-                        // Validated upfront that param_type is Integer or Float, so value is number
-                        let num_val = value
-                            .as_f64()
-                            .expect("value already validated as numeric type");
+        if let Some(range) = &self.range
+            && !value.is_null()
+        {
+            match param_type {
+                crate::ParameterType::Integer | crate::ParameterType::Float => {
+                    // Validated upfront that param_type is Integer or Float, so value is number
+                    let num_val = value
+                        .as_f64()
+                        .expect("value already validated as numeric type");
 
-                        if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
-                            if num_val < min || num_val > max {
-                                return Err(JankenError::new_parameter_type_mismatch(
-                                    format!("value between {min} and {max}{context}"),
-                                    num_val.to_string(),
-                                ));
-                            }
-                        }
+                    if let (Some(&min), Some(&max)) = (range.first(), range.get(1))
+                        && (num_val < min || num_val > max)
+                    {
+                        return Err(JankenError::new_parameter_type_mismatch(
+                            format!("value between {min} and {max}{context}"),
+                            num_val.to_string(),
+                        ));
                     }
-                    crate::ParameterType::Blob => {
-                        // For blob, range represents min/max size in bytes
-                        let blob_size = value
-                            .as_array()
-                            .expect("value already validated as Blob type")
-                            .len() as f64;
-
-                        if let (Some(&min), Some(&max)) = (range.first(), range.get(1)) {
-                            if blob_size < min || blob_size > max {
-                                return Err(JankenError::new_parameter_type_mismatch(
-                                    format!("blob size between {min} and {max} bytes{context}"),
-                                    format!("{blob_size} bytes"),
-                                ));
-                            }
-                        }
-                    }
-                    _ => {}
                 }
+                crate::ParameterType::Blob => {
+                    // For blob, range represents min/max size in bytes
+                    let blob_size = value
+                        .as_array()
+                        .expect("value already validated as Blob type")
+                        .len() as f64;
+
+                    if let (Some(&min), Some(&max)) = (range.first(), range.get(1))
+                        && (blob_size < min || blob_size > max)
+                    {
+                        return Err(JankenError::new_parameter_type_mismatch(
+                            format!("blob size between {min} and {max} bytes{context}"),
+                            format!("{blob_size} bytes"),
+                        ));
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -530,16 +530,16 @@ pub fn parse_constraints(
         constraints.range = Some(range);
     }
 
-    if let Some(pattern_val) = arg_def.get("pattern") {
-        if let Some(pattern_str) = pattern_val.as_str() {
-            constraints.pattern = Some(pattern_str.to_string());
-        }
+    if let Some(pattern_val) = arg_def.get("pattern")
+        && let Some(pattern_str) = pattern_val.as_str()
+    {
+        constraints.pattern = Some(pattern_str.to_string());
     }
 
-    if let Some(enum_val) = arg_def.get("enum") {
-        if let Some(enum_array) = enum_val.as_array() {
-            constraints.enum_values = Some(enum_array.clone());
-        }
+    if let Some(enum_val) = arg_def.get("enum")
+        && let Some(enum_array) = enum_val.as_array()
+    {
+        constraints.enum_values = Some(enum_array.clone());
     }
 
     if let Some(enumif_val) = arg_def.get("enumif") {
@@ -632,21 +632,21 @@ pub fn parse_constraints(
         ));
     }
 
-    if let Some(itemtype_val) = arg_def.get("itemtype") {
-        if let Some(itemtype_str) = itemtype_val.as_str() {
-            let item_type = ParameterType::from_str(itemtype_str)?;
-            // Validate item type - TableName and List are not allowed as item types
-            match item_type {
-                ParameterType::TableName | ParameterType::List => {
-                    return Err(JankenError::new_parameter_type_mismatch(
-                        "item_type for list items cannot be TableName or List",
-                        item_type.to_string(),
-                    ));
-                }
-                _ => {}
+    if let Some(itemtype_val) = arg_def.get("itemtype")
+        && let Some(itemtype_str) = itemtype_val.as_str()
+    {
+        let item_type = ParameterType::from_str(itemtype_str)?;
+        // Validate item type - TableName and List are not allowed as item types
+        match item_type {
+            ParameterType::TableName | ParameterType::List => {
+                return Err(JankenError::new_parameter_type_mismatch(
+                    "item_type for list items cannot be TableName or List",
+                    item_type.to_string(),
+                ));
             }
-            constraints.item_type = Some(item_type);
+            _ => {}
         }
+        constraints.item_type = Some(item_type);
     }
 
     Ok(())
