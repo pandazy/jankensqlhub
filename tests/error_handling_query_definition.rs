@@ -121,6 +121,92 @@ fn test_from_json_invalid_returns_field() {
 }
 
 #[test]
+fn test_from_json_returns_field_non_array_non_string() {
+    // Test that QueryDefinitions::from_json fails when returns field is neither array nor string
+    // (e.g., number, boolean, object, null) - covers lines 121-125 in query_definitions.rs
+
+    // Test with number
+    let json_number = serde_json::json!({
+        "bad_query": {
+            "query": "SELECT * FROM test",
+            "returns": 42
+        }
+    });
+    let result = QueryDefinitions::from_json(json_number);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "array of strings or ~[param_name] format");
+        assert_eq!(got, "42");
+    } else {
+        panic!("Expected ParameterTypeMismatch for number returns field, got: {err_str}");
+    }
+
+    // Test with boolean
+    let json_boolean = serde_json::json!({
+        "bad_query": {
+            "query": "SELECT * FROM test",
+            "returns": true
+        }
+    });
+    let result = QueryDefinitions::from_json(json_boolean);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "array of strings or ~[param_name] format");
+        assert_eq!(got, "true");
+    } else {
+        panic!("Expected ParameterTypeMismatch for boolean returns field, got: {err_str}");
+    }
+
+    // Test with object
+    let json_object = serde_json::json!({
+        "bad_query": {
+            "query": "SELECT * FROM test",
+            "returns": {"invalid": "object"}
+        }
+    });
+    let result = QueryDefinitions::from_json(json_object);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "array of strings or ~[param_name] format");
+        assert!(got.contains("invalid"));
+    } else {
+        panic!("Expected ParameterTypeMismatch for object returns field, got: {err_str}");
+    }
+
+    // Test with null
+    let json_null = serde_json::json!({
+        "bad_query": {
+            "query": "SELECT * FROM test",
+            "returns": null
+        }
+    });
+    let result = QueryDefinitions::from_json(json_null);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert_eq!(expected, "array of strings or ~[param_name] format");
+        assert_eq!(got, "null");
+    } else {
+        panic!("Expected ParameterTypeMismatch for null returns field, got: {err_str}");
+    }
+}
+
+#[test]
 fn test_from_json_non_object_input() {
     // Test that QueryDefinitions::from_json fails with expected error when input is not an object
     use jankensqlhub::QueryDefinitions;

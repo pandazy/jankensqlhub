@@ -127,14 +127,14 @@ impl QueryDef {
         param: &mut Parameter,
         arg_def: &serde_json::Value,
     ) -> Result<()> {
-        if let Some(type_val) = arg_def.get("type") {
-            if let Some(type_str) = type_val.as_str() {
-                let new_param_type = ParameterType::from_str(type_str)?;
+        if let Some(type_val) = arg_def.get("type")
+            && let Some(type_str) = type_val.as_str()
+        {
+            let new_param_type = ParameterType::from_str(type_str)?;
 
-                // Only assign if the type is different from the current parameter type
-                if new_param_type != param.param_type {
-                    param.param_type = new_param_type;
-                }
+            // Only assign if the type is different from the current parameter type
+            if new_param_type != param.param_type {
+                param.param_type = new_param_type;
             }
         }
         Ok(())
