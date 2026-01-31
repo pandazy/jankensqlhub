@@ -935,3 +935,229 @@ fn test_comma_list_with_enumif_multiple_items_validation() {
         panic!("Expected JankenError, got: {:?}", err);
     }
 }
+
+#[test]
+fn test_comma_list_with_range_constraint_valid() {
+    // Test comma_list with range constraint that limits array size
+    let mut conn = setup_db();
+
+    let json_definitions = json!({
+        "select_fields": {
+            "query": "SELECT ~[fields] FROM users WHERE id = 1",
+            "returns": ["name", "email"],
+            "args": {
+                "fields": {
+                    "enum": ["name", "email", "age"],
+                    "range": [1, 3]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Valid: 2 elements (within range 1-3)
+    let params = json!({"fields": ["name", "email"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+    assert_eq!(result.data[0]["name"], "Alice");
+    assert_eq!(result.data[0]["email"], "alice@test.com");
+}
+
+#[test]
+fn test_comma_list_with_range_constraint_min_boundary() {
+    // Test comma_list with range constraint at minimum boundary
+    let mut conn = setup_db();
+
+    let json_definitions = json!({
+        "select_fields": {
+            "query": "SELECT ~[fields] FROM users WHERE id = 1",
+            "returns": ["name"],
+            "args": {
+                "fields": {
+                    "enum": ["name", "email", "age"],
+                    "range": [1, 3]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Valid: exactly 1 element (at minimum)
+    let params = json!({"fields": ["name"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+    assert_eq!(result.data[0]["name"], "Alice");
+}
+
+#[test]
+fn test_comma_list_with_range_constraint_max_boundary() {
+    // Test comma_list with range constraint at maximum boundary
+    let mut conn = setup_db();
+
+    let json_definitions = json!({
+        "select_fields": {
+            "query": "SELECT ~[fields] FROM users WHERE id = 1",
+            "returns": ["name", "email", "age"],
+            "args": {
+                "fields": {
+                    "enum": ["name", "email", "age"],
+                    "range": [1, 3]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Valid: exactly 3 elements (at maximum)
+    let params = json!({"fields": ["name", "email", "age"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+    assert_eq!(result.data[0]["name"], "Alice");
+    assert_eq!(result.data[0]["email"], "alice@test.com");
+    assert_eq!(result.data[0]["age"], 25);
+}
+
+#[test]
+fn test_comma_list_with_range_constraint_too_few() {
+    // Test comma_list with range constraint rejects too few elements
+    let json_definitions = json!({
+        "select_fields": {
+            "query": "SELECT ~[fields] FROM users",
+            "returns": ["name"],
+            "args": {
+                "fields": {
+                    "enum": ["name", "email", "age"],
+                    "range": [2, 3]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let mut conn = setup_db();
+
+    // Invalid: 1 element (below minimum of 2)
+    let params = json!({"fields": ["name"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        let got = error_meta(data, M_GOT).unwrap();
+        assert!(
+            expected.contains("size between 2 and 3 elements"),
+            "Expected range error, got: {}",
+            expected
+        );
+        assert!(
+            got.contains("1 elements"),
+            "Expected '1 elements' in got, actual: {}",
+            got
+        );
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}
+
+#[test]
+fn test_comma_list_with_range_constraint_too_many() {
+    // Test comma_list with range constraint rejects too many elements
+    let json_definitions = json!({
+        "select_fields": {
+            "query": "SELECT ~[fields] FROM users",
+            "returns": ["name", "email", "age"],
+            "args": {
+                "fields": {
+                    "enum": ["name", "email", "age", "id"],
+                    "range": [1, 2]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let mut conn = setup_db();
+
+    // Invalid: 3 elements (above maximum of 2)
+    let params = json!({"fields": ["name", "email", "age"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        let got = error_meta(data, M_GOT).unwrap();
+        assert!(
+            expected.contains("size between 1 and 2 elements"),
+            "Expected range error, got: {}",
+            expected
+        );
+        assert!(
+            got.contains("3 elements"),
+            "Expected '3 elements' in got, actual: {}",
+            got
+        );
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}
+
+#[test]
+fn test_comma_list_with_range_exact_count() {
+    // Test comma_list with range constraint where min equals max (exact count)
+    let mut conn = setup_db();
+
+    let json_definitions = json!({
+        "select_fields": {
+            "query": "SELECT ~[fields] FROM users WHERE id = 1",
+            "returns": ["name", "email"],
+            "args": {
+                "fields": {
+                    "enum": ["name", "email", "age"],
+                    "range": [2, 2]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+
+    // Valid: exactly 2 elements
+    let params = json!({"fields": ["name", "email"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params).unwrap();
+    assert_eq!(result.data.len(), 1);
+
+    // Invalid: 1 element (not exactly 2)
+    let params = json!({"fields": ["name"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params);
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        let got = error_meta(data, M_GOT).unwrap();
+        assert_eq!(expected, "comma_list size between 2 and 2 elements");
+        assert_eq!(got, "1 elements");
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+
+    // Invalid: 3 elements (not exactly 2)
+    let params = json!({"fields": ["name", "email", "age"]});
+    let result = query_run_sqlite(&mut conn, &queries, "select_fields", &params);
+    let err = result.unwrap_err();
+    if let Some(janken_err) = err.downcast_ref::<jankensqlhub::JankenError>() {
+        let data = get_error_data(janken_err);
+        let expected = error_meta(data, M_EXPECTED).unwrap();
+        let got = error_meta(data, M_GOT).unwrap();
+        assert_eq!(expected, "comma_list size between 2 and 2 elements");
+        assert_eq!(got, "3 elements");
+    } else {
+        panic!("Expected JankenError, got: {:?}", err);
+    }
+}

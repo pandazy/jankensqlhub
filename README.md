@@ -240,14 +240,14 @@ let result = query_run_sqlite(&mut conn, &queries, "get_users_by_ids", &params)?
 
 | Type | Description | Constraint Options |
 |------|-------------|-------------------|
-| `string` | Text (default for `@param`) | `pattern`, `enum` |
+| `string` | Text (default for `@param`) | `pattern`, `enum`, `range` (char count) |
 | `integer` | Whole numbers | `range`, `enum` |
 | `float` | Decimal numbers | `range`, `enum` |
 | `boolean` | true/false | `enum` |
-| `blob` | Binary data | `range` (size limits) |
-| `table_name` | Auto-assigned to `#[param]` | `enum` (required) |
-| `list` | Auto-assigned to `:[param]` | `itemtype` |
-| `comma_list` | Auto-assigned to `~[param]` | `enum` |
+| `blob` | Binary data | `range` (size in bytes) |
+| `table_name` | Auto-assigned to `#[param]` | `enum` (required), `range` (char count) |
+| `list` | Auto-assigned to `:[param]` | `itemtype`, `range` (array size) |
+| `comma_list` | Auto-assigned to `~[param]` | `enum`, `range` (array size) |
 
 **Constraint Examples:**
 
@@ -258,11 +258,23 @@ let result = query_run_sqlite(&mut conn, &queries, "get_users_by_ids", &params)?
     "email": {"pattern": "\\S+@\\S+\\.\\S+"},
     "status": {"enum": ["active", "inactive", "pending"]},
     "data": {"type": "blob", "range": [1, 1048576]},
-    "user_ids": {"itemtype": "integer"},
-    "table": {"enum": ["users", "accounts"]}
+    "user_ids": {"itemtype": "integer", "range": [1, 100]},
+    "table": {"enum": ["users", "accounts"]},
+    "fields": {"enum": ["name", "email", "age"], "range": [1, 3]},
+    "username": {"type": "string", "range": [3, 50]}
   }
 }
 ```
+
+**Range Constraint Semantics:**
+
+| Type | Range Meaning |
+|------|---------------|
+| `integer`, `float` | Value must be within [min, max] |
+| `string`, `table_name` | Character count must be within [min, max] |
+| `blob` | Size in bytes must be within [min, max] |
+| `list`, `comma_list` | Array size (element count) must be within [min, max] |
+| `boolean` | Range not supported |
 
 ### Dynamic Returns
 
