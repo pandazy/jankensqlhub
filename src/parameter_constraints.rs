@@ -294,6 +294,27 @@ impl ParameterConstraints {
         Ok(())
     }
 
+    /// Validate array size against range constraint
+    /// `type_name` is the name of the type (e.g., "blob", "list")
+    /// `unit` is used to describe the unit in error messages (e.g., "elements", "bytes")
+    fn validate_array_size_range(
+        range: &[f64],
+        array_len: usize,
+        type_name: &str,
+        unit: &str,
+    ) -> Result<()> {
+        let array_size = array_len as f64;
+        if let (Some(&min), Some(&max)) = (range.first(), range.get(1))
+            && (array_size < min || array_size > max)
+        {
+            return Err(JankenError::new_parameter_type_mismatch(
+                format!("{type_name} size between {min} and {max} {unit}"),
+                format!("{array_size} {unit}"),
+            ));
+        }
+        Ok(())
+    }
+
     /// Validate parameter constraints (range, pattern, enum, enumif) assuming basic type validation is already done
     fn validate_constraints(
         &self,
@@ -318,22 +339,15 @@ impl ParameterConstraints {
         all_params: &serde_json::Map<String, serde_json::Value>,
         context: &str,
     ) -> Result<()> {
-        // Check that range is only specified for numeric types and blob
-        if self.range.is_some()
-            && !matches!(
-                param_type,
-                crate::ParameterType::Integer
-                    | crate::ParameterType::Float
-                    | crate::ParameterType::Blob
-            )
-        {
+        // Check that range is only specified for all types except boolean
+        if self.range.is_some() && matches!(param_type, crate::ParameterType::Boolean) {
             return Err(JankenError::new_parameter_type_mismatch(
-                "numeric type or blob",
+                "non-boolean type for range constraint",
                 param_type.to_string(),
             ));
         }
 
-        // Check range for numeric types and blob size (skip if value is null)
+        // Check range for different types (skip if value is null)
         if let Some(range) = &self.range
             && !value.is_null()
         {
@@ -353,21 +367,30 @@ impl ParameterConstraints {
                         ));
                     }
                 }
-                crate::ParameterType::Blob => {
-                    // For blob, range represents min/max size in bytes
-                    let blob_size = value
-                        .as_array()
-                        .expect("value already validated as Blob type")
-                        .len() as f64;
+                crate::ParameterType::String | crate::ParameterType::TableName => {
+                    // For strings, range represents min/max character count
+                    let str_len = value
+                        .as_str()
+                        .expect("value already validated as String type")
+                        .chars()
+                        .count() as f64;
 
                     if let (Some(&min), Some(&max)) = (range.first(), range.get(1))
-                        && (blob_size < min || blob_size > max)
+                        && (str_len < min || str_len > max)
                     {
                         return Err(JankenError::new_parameter_type_mismatch(
-                            format!("blob size between {min} and {max} bytes{context}"),
-                            format!("{blob_size} bytes"),
+                            format!("string length between {min} and {max} characters{context}"),
+                            format!("{str_len} characters"),
                         ));
                     }
+                }
+                crate::ParameterType::Blob => {
+                    // For blob, range represents min/max size in bytes
+                    let blob_len = value
+                        .as_array()
+                        .expect("value already validated as Blob type")
+                        .len();
+                    Self::validate_array_size_range(range, blob_len, "blob", "bytes")?;
                 }
                 _ => {}
             }
@@ -398,12 +421,18 @@ impl ParameterConstraints {
                 return Err(Self::constraint_mismatch_error(param_type, value));
             }
 
+            let array = value
+                .as_array()
+                .expect("is_array() already verified at the beginning of this block");
+
+            // Validate array size range constraint for List
+            if let Some(range) = &self.range {
+                Self::validate_array_size_range(range, array.len(), "list", "elements")?;
+            }
+
             // Validate each item in the list if item_type is specified
             // Note: item_type validation is already done during constraint parsing at definition time
             if let Some(item_type) = &self.item_type {
-                let array = value
-                    .as_array()
-                    .expect("is_array() already verified at the beginning of this block");
                 for (index, item) in array.iter().enumerate() {
                     let context = format!(" at index {index}");
                     // Validate basic type and constraints for each item
@@ -418,8 +447,8 @@ impl ParameterConstraints {
                     )?;
                 }
             }
-            // For Lists, constraints (range, pattern, enum) apply to items if item_type is set,
-            // but not to the list itself, so we don't call validate_constraints after this match
+            // For Lists, constraints (pattern, enum) apply to items if item_type is set,
+            // but range applies to the list size itself
             return Ok(());
         }
 
@@ -428,10 +457,26 @@ impl ParameterConstraints {
                 return Err(Self::constraint_mismatch_error(param_type, value));
             }
 
-            // Validate each item in the comma list - must be strings
             let array = value
                 .as_array()
                 .expect("is_array() already verified at the beginning of this block");
+
+            // Validate array size range constraint for CommaList
+            if let Some(range) = &self.range {
+                Self::validate_array_size_range(range, array.len(), "comma_list", "elements")?;
+            }
+
+            // Create a constraint copy without range for item validation
+            // Range constraint applies to array size, not individual item values
+            let item_constraints = ParameterConstraints {
+                range: None, // Range already validated at array level
+                pattern: self.pattern.clone(),
+                enum_values: self.enum_values.clone(),
+                item_type: None, // Not applicable for CommaList items
+                enumif: self.enumif.clone(),
+            };
+
+            // Validate each item in the comma list - must be strings
             for (index, item) in array.iter().enumerate() {
                 let context = format!(" at index {index}");
                 // Each item must be a string
@@ -444,7 +489,7 @@ impl ParameterConstraints {
 
                 // Apply all constraints (pattern, enum, enumif) using the unified method
                 // Note: We use ParameterType::String since CommaList items are always strings
-                self.validate_constraint_rules(
+                item_constraints.validate_constraint_rules(
                     item,
                     &crate::ParameterType::String,
                     param_name,

@@ -88,16 +88,8 @@ fn test_parameter_validation_range_non_numeric() {
 
 #[test]
 fn test_parameter_validation_range_wrong_type() {
+    // Range on boolean type should be rejected (only type that doesn't support range)
     let json_definitions = serde_json::json!({
-        "select_with_range_string": {
-            "query": "select * from source where name=@name",
-            "args": {
-                "name": {
-                    "type": "string",
-                    "range": [1, 100]
-                }
-            }
-        },
         "select_with_range_bool": {
             "query": "select * from source where id=@id",
             "args": {
@@ -111,21 +103,6 @@ fn test_parameter_validation_range_wrong_type() {
 
     let queries = QueryDefinitions::from_json(json_definitions).unwrap();
     let mut conn = setup_db();
-    conn.execute("INSERT INTO source VALUES (1, 'test', NULL)", [])
-        .unwrap();
-
-    let params = serde_json::json!({"name": "test"});
-    let err =
-        query_run_sqlite(&mut conn, &queries, "select_with_range_string", &params).unwrap_err();
-    let err_str = format!("{err:?}");
-    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
-        let expected = error_meta(&data, M_EXPECTED).unwrap();
-        let got = error_meta(&data, M_GOT).unwrap();
-        assert_eq!(expected, "numeric type or blob");
-        assert_eq!(got, "string");
-    } else {
-        panic!("Expected ParameterTypeMismatch, got: {err_str}");
-    }
 
     let params = serde_json::json!({"id": true});
     let err = query_run_sqlite(&mut conn, &queries, "select_with_range_bool", &params).unwrap_err();
@@ -133,8 +110,95 @@ fn test_parameter_validation_range_wrong_type() {
     if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
         let expected = error_meta(&data, M_EXPECTED).unwrap();
         let got = error_meta(&data, M_GOT).unwrap();
-        assert_eq!(expected, "numeric type or blob");
+        assert_eq!(expected, "non-boolean type for range constraint");
         assert_eq!(got, "boolean");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
+    }
+}
+
+#[test]
+fn test_parameter_validation_range_string() {
+    // Range on string type validates character count
+    let json_definitions = serde_json::json!({
+        "select_with_range_string": {
+            "query": "select * from source where name=@name",
+            "returns": ["id", "name", "score"],
+            "args": {
+                "name": {
+                    "type": "string",
+                    "range": [5, 100]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let mut conn = setup_db();
+    conn.execute("INSERT INTO source VALUES (1, 'hello', NULL)", [])
+        .unwrap();
+
+    // Valid: "hello" has 5 characters (exactly at minimum)
+    let params = serde_json::json!({"name": "hello"});
+    let result = query_run_sqlite(&mut conn, &queries, "select_with_range_string", &params);
+    assert!(result.is_ok());
+
+    // Invalid: "test" has 4 characters (below minimum of 5)
+    let params = serde_json::json!({"name": "test"});
+    let err =
+        query_run_sqlite(&mut conn, &queries, "select_with_range_string", &params).unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(
+            expected.contains("string length between 5 and 100 characters"),
+            "Expected string length error, got: {}",
+            expected
+        );
+        assert_eq!(got, "4 characters");
+    } else {
+        panic!("Expected ParameterTypeMismatch, got: {err_str}");
+    }
+}
+
+#[test]
+fn test_parameter_validation_range_table_name() {
+    // Range on table_name type validates character count
+    let json_definitions = serde_json::json!({
+        "select_from_table": {
+            "query": "select * from #[table_name]",
+            "returns": ["id", "name", "score"],
+            "args": {
+                "table_name": {
+                    "enum": ["source", "src", "data_source"],
+                    "range": [4, 20]
+                }
+            }
+        }
+    });
+
+    let queries = QueryDefinitions::from_json(json_definitions).unwrap();
+    let mut conn = setup_db();
+
+    // Valid: "source" has 6 characters (within range 4-20)
+    let params = serde_json::json!({"table_name": "source"});
+    let result = query_run_sqlite(&mut conn, &queries, "select_from_table", &params);
+    assert!(result.is_ok());
+
+    // Invalid: "src" has 3 characters (below minimum of 4)
+    let params = serde_json::json!({"table_name": "src"});
+    let err = query_run_sqlite(&mut conn, &queries, "select_from_table", &params).unwrap_err();
+    let err_str = format!("{err:?}");
+    if let Ok(JankenError::ParameterTypeMismatch { data }) = err.downcast::<JankenError>() {
+        let expected = error_meta(&data, M_EXPECTED).unwrap();
+        let got = error_meta(&data, M_GOT).unwrap();
+        assert!(
+            expected.contains("string length between 4 and 20 characters"),
+            "Expected string length error for table_name, got: {}",
+            expected
+        );
+        assert_eq!(got, "3 characters");
     } else {
         panic!("Expected ParameterTypeMismatch, got: {err_str}");
     }
