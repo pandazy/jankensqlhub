@@ -5,6 +5,7 @@ A Rust library for parameterizable SQL query management that prevents SQL inject
 ## Table of Contents
 
 - [Overview](#-overview)
+- [Claude Code Skill](#-claude-code-skill)
 - [Quick Start](#-quick-start)
 - [Parameter Syntax Reference](#-parameter-syntax-reference)
 - [Usage Guide](#-usage-guide)
@@ -70,6 +71,19 @@ conn.execute("DROP TABLE temp_data", [])?;
 | **Comma Lists** | `~[param]` syntax for comma-separated field lists |
 | **Type Safety** | Parameter validation with constraints (range, pattern, enum) |
 | **Multi-Backend** | SQLite and PostgreSQL support with identical API |
+
+---
+
+## 🤖 Claude Code Skill
+
+This repository includes a [Claude Code skill](https://code.claude.com/docs/en/skills) at `.claude/skills/using-jankensqlhub/SKILL.md` that provides AI-assisted guidance when working with JankenSQLHub. When using [Claude Code](https://code.claude.com), the skill is automatically discovered and gives Claude knowledge of:
+
+- Parameter syntax and query definition structure
+- Type system and constraint configuration
+- SQLite and PostgreSQL execution patterns
+- Structured error handling with `JankenError`
+
+This enables Claude to generate correct JankenSQLHub code, debug parameter validation issues, and follow library conventions without needing to re-read the documentation each time.
 
 ---
 
