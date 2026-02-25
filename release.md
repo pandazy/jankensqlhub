@@ -1,18 +1,37 @@
-# Release Notes v1.3.1
+# Release Notes v1.4.0
 
-## 📚 **Documentation**
+## 🚀 **New Feature: User-managed Transaction API**
 
-### Added Claude Code Skill
+### Added `_with_transaction` methods for both database backends
 
-Added `.claude/skills/using-jankensqlhub/SKILL.md` — a Claude Code agent skill that provides JankenSQLHub usage guidance. This skill is automatically discovered by Claude Code when working in this repository and covers:
+New public methods that accept user-provided transaction objects directly, giving full control over transaction lifecycle (begin/commit/rollback). This enables executing multiple JankenSQLHub queries within a single transaction.
 
-- Parameter syntax (`@param`, `#[param]`, `:[param]`, `~[param]`)
-- Query definition structure and type system
-- Constraint configuration (`enum`, `enumif`, `range`, `pattern`)
-- Dynamic returns with `~[fields]`
-- SQLite and PostgreSQL execution examples
-- Structured error handling with `JankenError`
+#### SQLite: `query_run_sqlite_with_transaction`
+
+```rust
+use jankensqlhub::{QueryDefinitions, query_run_sqlite_with_transaction};
+
+let tx = conn.transaction()?;
+query_run_sqlite_with_transaction(&tx, &queries, "insert_user", &params1)?;
+query_run_sqlite_with_transaction(&tx, &queries, "insert_profile", &params2)?;
+tx.commit()?; // caller controls commit/rollback
+```
+
+#### PostgreSQL: `query_run_postgresql_with_transaction`
+
+```rust
+use jankensqlhub::{QueryDefinitions, query_run_postgresql_with_transaction};
+
+let mut tx = client.transaction().await?;
+query_run_postgresql_with_transaction(&mut tx, &queries, "insert_user", &params1).await?;
+query_run_postgresql_with_transaction(&mut tx, &queries, "insert_profile", &params2).await?;
+tx.commit().await?;
+```
+
+### Refactored existing methods
+
+The existing `query_run_sqlite` and `query_run_postgresql` methods now internally delegate to the new `_with_transaction` variants, maintaining full backward compatibility while reducing code duplication.
 
 ---
 
-**Version 1.3.1** - Added Claude Code agent skill for JankenSQLHub usage guidance
+**Version 1.4.0** - Added user-managed transaction API for SQLite and PostgreSQL

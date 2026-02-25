@@ -335,9 +335,11 @@ pub async fn execute_query_unified(
     }
 }
 
-// Execute queries with PostgreSQL backend
-pub async fn query_run_postgresql(
-    client: &mut Client,
+/// Execute a query within a user-provided PostgreSQL transaction.
+/// This allows the caller to manage the transaction lifecycle (begin/commit/rollback),
+/// enabling multiple `query_run` calls within the same transaction.
+pub async fn query_run_postgresql_with_transaction(
+    transaction: &mut tokio_postgres::Transaction<'_>,
     queries: &QueryDefinitions,
     query_name: &str,
     request_params: &serde_json::Value,
@@ -351,13 +353,28 @@ pub async fn query_run_postgresql(
         .as_object()
         .ok_or_else(|| JankenError::new_parameter_type_mismatch("object", "not object"))?;
 
-    // Start transaction - always use transactions for consistency and ACID properties
+    execute_query_unified(query, request_params_obj, transaction).await
+}
+
+/// Execute queries with PostgreSQL backend.
+/// This is the main entry point for PostgreSQL operations.
+/// It creates a transaction internally, executes the query, and commits.
+pub async fn query_run_postgresql(
+    client: &mut Client,
+    queries: &QueryDefinitions,
+    query_name: &str,
+    request_params: &serde_json::Value,
+) -> anyhow::Result<QueryResult> {
     let mut transaction = client.transaction().await.map_err(anyhow::Error::from)?;
 
-    // Handle all queries uniformly within transactions
-    let query_result = execute_query_unified(query, request_params_obj, &mut transaction).await?;
+    let query_result = query_run_postgresql_with_transaction(
+        &mut transaction,
+        queries,
+        query_name,
+        request_params,
+    )
+    .await?;
 
-    // Always commit the transaction (for both single and multi-statement queries)
     transaction.commit().await.map_err(anyhow::Error::from)?;
     Ok(query_result)
 }
