@@ -239,10 +239,11 @@ pub fn execute_query_unified(
     }
 }
 
-/// Execute queries with SQLite backend
-/// This is the main entry point for SQLite operations
-pub fn query_run_sqlite(
-    conn: &mut Connection,
+/// Execute a query within a user-provided SQLite transaction.
+/// This allows the caller to manage the transaction lifecycle (begin/commit/rollback),
+/// enabling multiple `query_run` calls within the same transaction.
+pub fn query_run_sqlite_with_transaction(
+    tx: &rusqlite::Transaction,
     queries: &QueryDefinitions,
     query_name: &str,
     request_params: &serde_json::Value,
@@ -256,12 +257,22 @@ pub fn query_run_sqlite(
         .as_object()
         .ok_or_else(|| JankenError::new_parameter_type_mismatch("object", "not object"))?;
 
+    execute_query_unified(query, request_params_obj, tx)
+}
+
+/// Execute queries with SQLite backend.
+/// This is the main entry point for SQLite operations.
+/// It creates a transaction internally, executes the query, and commits.
+pub fn query_run_sqlite(
+    conn: &mut Connection,
+    queries: &QueryDefinitions,
+    query_name: &str,
+    request_params: &serde_json::Value,
+) -> anyhow::Result<QueryResult> {
     let tx = conn.transaction()?;
 
-    // Handle all queries uniformly within transactions
-    let query_result = execute_query_unified(query, request_params_obj, &tx)?;
+    let query_result = query_run_sqlite_with_transaction(&tx, queries, query_name, request_params)?;
 
-    // Always commit the transaction (for both single and multi-statement queries)
     tx.commit()?;
     Ok(query_result)
 }

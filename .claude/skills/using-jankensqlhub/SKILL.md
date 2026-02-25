@@ -182,6 +182,34 @@ use jankensqlhub::{QueryDefinitions, query_run_postgresql};
 let result = query_run_postgresql(&mut client, &queries, "get_user", &params).await?;
 ```
 
+### User-managed Transactions
+
+Use `query_run_sqlite_with_transaction` / `query_run_postgresql_with_transaction` to execute multiple queries within a single user-controlled transaction. The caller is responsible for committing or rolling back.
+
+**SQLite:**
+
+```rust
+use jankensqlhub::{QueryDefinitions, query_run_sqlite_with_transaction};
+
+let tx = conn.transaction()?;
+query_run_sqlite_with_transaction(&tx, &queries, "insert_user", &params1)?;
+query_run_sqlite_with_transaction(&tx, &queries, "insert_profile", &params2)?;
+tx.commit()?; // user controls commit/rollback
+```
+
+**PostgreSQL (async):**
+
+```rust
+use jankensqlhub::{QueryDefinitions, query_run_postgresql_with_transaction};
+
+let mut tx = client.transaction().await?;
+query_run_postgresql_with_transaction(&mut tx, &queries, "insert_user", &params1).await?;
+query_run_postgresql_with_transaction(&mut tx, &queries, "insert_profile", &params2).await?;
+tx.commit().await?;
+```
+
+Note: The standard `query_run_sqlite` / `query_run_postgresql` methods internally create, execute, and commit a transaction per call. The `_with_transaction` variants skip transaction creation and commit, delegating full control to the caller.
+
 ## Error Handling
 
 JankenSQLHub produces structured errors:

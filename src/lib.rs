@@ -10,12 +10,12 @@ pub mod str_utils;
 #[cfg(feature = "postgresql")]
 pub mod runner_postgresql;
 
-// Re-export PostgreSQL function for production use
+// Re-export PostgreSQL functions for production use
 #[cfg(feature = "postgresql")]
-pub use runner_postgresql::query_run_postgresql;
+pub use runner_postgresql::{query_run_postgresql, query_run_postgresql_with_transaction};
 
 #[cfg(feature = "sqlite")]
-pub use runner_sqlite::query_run_sqlite;
+pub use runner_sqlite::{query_run_sqlite, query_run_sqlite_with_transaction};
 
 // Re-export types for convenience
 pub use parameters::{Parameter, ParameterType};
